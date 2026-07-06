@@ -1,17 +1,29 @@
 # ── Development Dockerfile (HMR / hot-reload) ─────────────────────────────────
+# FIX v1.0.1:
+#   - EXPOSE: 5173 → 3000 (Vite dev server runs on port 3000 per vite.config.ts)
+#   - CMD: removed incorrect -- separator; correct form is: pnpm run dev --host 0.0.0.0
+#   - COPY . . removed — source is volume-mounted in docker-compose for live HMR
+#   - Added ENV NODE_ENV + CHOKIDAR_USEPOLLING for reliable file watching in Docker
+# ──────────────────────────────────────────────────────────────────────────────
 FROM node:22-alpine
 
 WORKDIR /app
 
 RUN corepack enable && corepack prepare pnpm@10.4.1 --activate
 
+# Copy lockfiles first for layer caching
 COPY package.json pnpm-lock.yaml ./
 COPY patches/ ./patches/
 
 RUN pnpm install --frozen-lockfile
 
-COPY . .
+# Source is mounted via volume in docker-compose (not copied here)
+# This enables live HMR without rebuilding the image on every code change
 
-EXPOSE 5173
+ENV NODE_ENV=development
+ENV CHOKIDAR_USEPOLLING=true
 
-CMD ["pnpm", "run", "dev", "--", "--host", "0.0.0.0"]
+EXPOSE 3000
+
+# pnpm run dev passes --host 0.0.0.0 so Vite binds to all interfaces in container
+CMD ["pnpm", "run", "dev", "--host", "0.0.0.0"]

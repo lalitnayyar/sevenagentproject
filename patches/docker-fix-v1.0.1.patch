@@ -1,0 +1,327 @@
+# ==============================================================
+# 7-Agent Price Intelligence Dashboard — Docker Fix Patch v1.0.1
+# Author: Lalit Nayyar
+# Date: 2026-07-06
+# Apply with: patch -p1 < docker-fix-v1.0.1.patch
+# ==============================================================
+
+--- /tmp/patch-originals/Dockerfile.orig	2026-07-06 09:36:29.054871304 +0000
++++ Dockerfile	2026-07-06 09:37:14.887151290 +0000
+@@ -1,6 +1,14 @@
+ # ──────────────────────────────────────────────────────────────────────────────
+ # 7-Agent Price Intelligence Dashboard — Dockerfile
+-# Multi-stage build: Node build → Nginx serve
++# Multi-stage build: Node 22 (pnpm build) → Nginx 1.27 (serve)
++#
++# FIX v1.0.1 — Changes from v1.0.0:
++#   1. Added .dockerignore (node_modules/dist excluded from build context)
++#   2. ARG expanded: VITE_ANALYTICS_ENDPOINT + VITE_ANALYTICS_WEBSITE_ID added
++#   3. Nginx mkdir for cache subdirs before chown (prevents permission error)
++#   4. HEALTHCHECK: /health → / with html grep (SPA has no /health route)
++#   5. start-period: 5s → 10s (gives Nginx more time to start)
++#   6. LABEL version bumped to 1.0.1
+ # ──────────────────────────────────────────────────────────────────────────────
+ 
+ # ── Stage 1: Build ─────────────────────────────────────────────────────────────
+@@ -8,55 +16,70 @@
+ 
+ LABEL maintainer="Lalit Nayyar <lalitnayyar@gmail.com>"
+ LABEL description="7-Agent Price Intelligence Dashboard — React Frontend"
+-LABEL version="1.0.0"
++LABEL version="1.0.1"
+ 
+ WORKDIR /app
+ 
+-# Install pnpm
++# Install pnpm via corepack (matches packageManager field in package.json)
+ RUN corepack enable && corepack prepare pnpm@10.4.1 --activate
+ 
+-# Copy package files first for layer caching
++# ── Layer cache: copy lockfiles first, install, then copy source ──────────────
++# package.json and pnpm-lock.yaml are at project root (same dir as Dockerfile)
+ COPY package.json pnpm-lock.yaml ./
++
++# patches/ required by pnpm patchedDependencies (wouter@3.7.1 patch)
+ COPY patches/ ./patches/
+ 
+-# Install dependencies
++# Install all dependencies (frozen for reproducible builds)
+ RUN pnpm install --frozen-lockfile
+ 
+-# Copy source
++# Copy the rest of the source tree
++# .dockerignore excludes: node_modules, dist, .git, .manus*, .manus-logs
+ COPY . .
+ 
+-# Build arguments for environment variables
++# Build-time env vars injected by docker-compose --build-arg or CI
+ ARG VITE_APP_TITLE="7-Agent Price Intelligence Dashboard"
+ ARG VITE_APP_ID="agent-dashboard"
++ARG VITE_ANALYTICS_ENDPOINT=""
++ARG VITE_ANALYTICS_WEBSITE_ID=""
+ 
+-# Build the React app
++# Vite root = client/, outDir = dist/public (defined in vite.config.ts)
+ RUN pnpm run build
+ 
+ # ── Stage 2: Serve ─────────────────────────────────────────────────────────────
+ FROM nginx:1.27-alpine AS production
+ 
+ LABEL maintainer="Lalit Nayyar <lalitnayyar@gmail.com>"
++LABEL description="7-Agent Price Intelligence Dashboard — Nginx"
++LABEL version="1.0.1"
+ 
+-# Copy custom nginx config
++# Copy custom nginx config (SPA routing + gzip + security headers)
+ COPY nginx.conf /etc/nginx/nginx.conf
+ 
+-# Copy built assets from builder stage
++# Copy built React SPA — vite outDir is dist/public (not dist/)
+ COPY --from=builder /app/dist/public /usr/share/nginx/html
+ 
+-# Create non-root user for security
++# Create non-root user for security hardening
++# mkdir cache subdirs BEFORE chown to avoid "No such file or directory" error
+ RUN addgroup -g 1001 -S appgroup && \
+     adduser -u 1001 -S appuser -G appgroup && \
++    mkdir -p /var/cache/nginx/client_temp \
++             /var/cache/nginx/proxy_temp \
++             /var/cache/nginx/fastcgi_temp \
++             /var/cache/nginx/uwsgi_temp \
++             /var/cache/nginx/scgi_temp && \
+     chown -R appuser:appgroup /usr/share/nginx/html && \
+     chown -R appuser:appgroup /var/cache/nginx && \
+     chown -R appuser:appgroup /var/log/nginx && \
+     touch /var/run/nginx.pid && \
+-    chown -R appuser:appgroup /var/run/nginx.pid
++    chown appuser:appgroup /var/run/nginx.pid
+ 
+ USER appuser
+ 
+ EXPOSE 80
+ 
+-HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+-    CMD wget -qO- http://localhost:80/health || exit 1
++# Health check: SPA serves index.html for all routes — verify HTML is returned
++HEALTHCHECK --interval=30s --timeout=10s --start-period=10s --retries=3 \
++    CMD wget -qO- http://localhost:80/ | grep -q "<!doctype html" || exit 1
+ 
+ CMD ["nginx", "-g", "daemon off;"]
+--- /tmp/patch-originals/Dockerfile.dev.orig	2026-07-06 09:36:29.054871304 +0000
++++ Dockerfile.dev	2026-07-06 09:38:16.851536259 +0000
+@@ -1,17 +1,29 @@
+ # ── Development Dockerfile (HMR / hot-reload) ─────────────────────────────────
++# FIX v1.0.1:
++#   - EXPOSE: 5173 → 3000 (Vite dev server runs on port 3000 per vite.config.ts)
++#   - CMD: removed incorrect -- separator; correct form is: pnpm run dev --host 0.0.0.0
++#   - COPY . . removed — source is volume-mounted in docker-compose for live HMR
++#   - Added ENV NODE_ENV + CHOKIDAR_USEPOLLING for reliable file watching in Docker
++# ──────────────────────────────────────────────────────────────────────────────
+ FROM node:22-alpine
+ 
+ WORKDIR /app
+ 
+ RUN corepack enable && corepack prepare pnpm@10.4.1 --activate
+ 
++# Copy lockfiles first for layer caching
+ COPY package.json pnpm-lock.yaml ./
+ COPY patches/ ./patches/
+ 
+ RUN pnpm install --frozen-lockfile
+ 
+-COPY . .
++# Source is mounted via volume in docker-compose (not copied here)
++# This enables live HMR without rebuilding the image on every code change
+ 
+-EXPOSE 5173
++ENV NODE_ENV=development
++ENV CHOKIDAR_USEPOLLING=true
+ 
+-CMD ["pnpm", "run", "dev", "--", "--host", "0.0.0.0"]
++EXPOSE 3000
++
++# pnpm run dev passes --host 0.0.0.0 so Vite binds to all interfaces in container
++CMD ["pnpm", "run", "dev", "--host", "0.0.0.0"]
+--- /tmp/patch-originals/docker-compose.yml.orig	2026-07-06 09:36:29.058871328 +0000
++++ docker-compose.yml	2026-07-06 09:39:04.987837872 +0000
+@@ -1,10 +1,22 @@
+ # ──────────────────────────────────────────────────────────────────────────────
+ # 7-Agent Price Intelligence Dashboard — Docker Compose
+ # Author: Lalit Nayyar <lalitnayyar@gmail.com>
++# Version: 1.0.1
++#
++# FIX v1.0.1:
++#   - dashboard: healthcheck /health → / (SPA has no /health route)
++#   - dashboard: build args expanded with VITE_ANALYTICS_* vars
++#   - dashboard-dev: port 5173 → 3000 (matches Vite config port)
++#   - dashboard-dev: full volume mounts added (server, patches, tsconfig, vite.config)
++#   - agent-backend: context ./agent-backend → ./python-agents (correct folder name)
++#   - agent-backend: added start_period: 15s to healthcheck
++#
+ # Usage:
+-#   Production:  docker compose up -d
+-#   Development: docker compose --profile dev up
+-#   With agents: docker compose --profile agents up -d
++#   Production:   docker compose up -d
++#   Development:  docker compose --profile dev up
++#   With agents:  docker compose --profile agents up -d
++#   Monitoring:   docker compose --profile monitoring up -d
++#   Full stack:   docker compose --profile agents --profile monitoring up -d
+ # ──────────────────────────────────────────────────────────────────────────────
+ 
+ services:
+@@ -18,6 +30,8 @@
+       args:
+         VITE_APP_TITLE: "${APP_TITLE:-7-Agent Price Intelligence Dashboard}"
+         VITE_APP_ID: "agent-dashboard"
++        VITE_ANALYTICS_ENDPOINT: "${VITE_ANALYTICS_ENDPOINT:-}"
++        VITE_ANALYTICS_WEBSITE_ID: "${VITE_ANALYTICS_WEBSITE_ID:-}"
+     image: agent-dashboard:${APP_VERSION:-latest}
+     container_name: agent-dashboard
+     restart: unless-stopped
+@@ -26,14 +40,15 @@
+     environment:
+       - TZ=${TZ:-UTC}
+     healthcheck:
+-      test: ["CMD", "wget", "-qO-", "http://localhost:80/health"]
++      # SPA serves index.html for all routes — /health does not exist
++      test: ["CMD", "wget", "-qO-", "http://localhost:80/"]
+       interval: 30s
+       timeout: 10s
+       retries: 3
+       start_period: 10s
+     labels:
+       - "com.agent-dashboard.service=frontend"
+-      - "com.agent-dashboard.version=${APP_VERSION:-1.0.0}"
++      - "com.agent-dashboard.version=${APP_VERSION:-1.0.1}"
+     networks:
+       - agent-net
+     logging:
+@@ -51,14 +66,23 @@
+     container_name: agent-dashboard-dev
+     profiles: ["dev"]
+     ports:
+-      - "${DEV_PORT:-5173}:5173"
++      # Port 3000 matches Vite config (was incorrectly 5173 in v1.0.0)
++      - "${DEV_PORT:-3000}:3000"
+     volumes:
++      # Mount source directories for live HMR — changes reflect instantly
+       - ./client:/app/client:delegated
+       - ./shared:/app/shared:delegated
++      - ./server:/app/server:delegated
++      - ./patches:/app/patches:delegated
++      - ./vite.config.ts:/app/vite.config.ts:delegated
++      - ./tsconfig.json:/app/tsconfig.json:delegated
++      - ./tsconfig.node.json:/app/tsconfig.node.json:delegated
++      # Anonymous volume prevents host node_modules from overwriting container's
+       - /app/node_modules
+     environment:
+       - NODE_ENV=development
+       - CHOKIDAR_USEPOLLING=true
++      - TZ=${TZ:-UTC}
+     networks:
+       - agent-net
+ 
+@@ -83,7 +107,8 @@
+   # ── Python Agent Backend (optional, for real agent execution) ─────────────
+   agent-backend:
+     build:
+-      context: ./agent-backend
++      # context corrected: ./agent-backend → ./python-agents (actual folder name)
++      context: ./python-agents
+       dockerfile: Dockerfile.python
+     image: agent-backend:latest
+     container_name: agent-backend
+@@ -99,12 +124,13 @@
+     volumes:
+       - agent-data:/app/data
+       - agent-logs:/app/logs
+-      - ./products_vectorstore:/app/products_vectorstore:ro
++      - ./python-agents/products_vectorstore:/app/products_vectorstore:ro
+     healthcheck:
+       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+       interval: 30s
+       timeout: 10s
+       retries: 3
++      start_period: 15s
+     networks:
+       - agent-net
+     logging:
+@@ -113,7 +139,7 @@
+         max-size: "50m"
+         max-file: "10"
+ 
+-  # ── Log Aggregator (optional) ─────────────────────────────────────────────
++  # ── Log Viewer / Dozzle (optional monitoring) ─────────────────────────────
+   log-viewer:
+     image: amir20/dozzle:latest
+     container_name: agent-log-viewer
+--- .dockerignore.orig	2026-07-06 08:15:43.002299101 +0000
++++ .dockerignore	2026-07-06 09:37:53.795392395 +0000
+@@ -0,0 +1,66 @@
++# ──────────────────────────────────────────────────────────────────────────────
++# .dockerignore — 7-Agent Price Intelligence Dashboard
++# Prevents large/sensitive directories from being sent to Docker build context
++# Without this, node_modules (~500MB) gets sent on every build = very slow
++# ──────────────────────────────────────────────────────────────────────────────
++
++# Node.js dependencies (rebuilt inside container via pnpm install)
++node_modules/
++**/node_modules/
++
++# Build output (rebuilt inside container via pnpm run build)
++dist/
++**/dist/
++
++# Git history (not needed in image)
++.git/
++.gitignore
++
++# Manus platform files (dev-only tooling)
++.manus/
++.manus-logs/
++.project-config.json
++
++# Environment files with secrets (use --build-arg or docker-compose env_file)
++.env
++.env.local
++.env.*.local
++
++# Editor / IDE files
++.vscode/
++.idea/
++*.swp
++*.swo
++.DS_Store
++Thumbs.db
++
++# Test and coverage output
++coverage/
++*.test.ts
++*.spec.ts
++
++# Logs
++*.log
++logs/
++
++# Python agent files (not needed for React frontend image)
++python-agents/
++__pycache__/
++*.pyc
++*.pyo
++*.pyd
++.Python
++*.egg-info/
++
++# Docker files themselves (avoid recursive copy confusion)
++Dockerfile*
++docker-compose*.yml
++.dockerignore
++
++# Scripts (not needed inside the container)
++scripts/
++
++# Documentation
++docs/
++README.md
++prompt.md

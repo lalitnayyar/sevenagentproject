@@ -1,10 +1,22 @@
 # ──────────────────────────────────────────────────────────────────────────────
 # 7-Agent Price Intelligence Dashboard — Docker Compose
 # Author: Lalit Nayyar <lalitnayyar@gmail.com>
+# Version: 1.0.1
+#
+# FIX v1.0.1:
+#   - dashboard: healthcheck /health → / (SPA has no /health route)
+#   - dashboard: build args expanded with VITE_ANALYTICS_* vars
+#   - dashboard-dev: port 5173 → 3000 (matches Vite config port)
+#   - dashboard-dev: full volume mounts added (server, patches, tsconfig, vite.config)
+#   - agent-backend: context ./agent-backend → ./python-agents (correct folder name)
+#   - agent-backend: added start_period: 15s to healthcheck
+#
 # Usage:
-#   Production:  docker compose up -d
-#   Development: docker compose --profile dev up
-#   With agents: docker compose --profile agents up -d
+#   Production:   docker compose up -d
+#   Development:  docker compose --profile dev up
+#   With agents:  docker compose --profile agents up -d
+#   Monitoring:   docker compose --profile monitoring up -d
+#   Full stack:   docker compose --profile agents --profile monitoring up -d
 # ──────────────────────────────────────────────────────────────────────────────
 
 services:
@@ -18,6 +30,8 @@ services:
       args:
         VITE_APP_TITLE: "${APP_TITLE:-7-Agent Price Intelligence Dashboard}"
         VITE_APP_ID: "agent-dashboard"
+        VITE_ANALYTICS_ENDPOINT: "${VITE_ANALYTICS_ENDPOINT:-}"
+        VITE_ANALYTICS_WEBSITE_ID: "${VITE_ANALYTICS_WEBSITE_ID:-}"
     image: agent-dashboard:${APP_VERSION:-latest}
     container_name: agent-dashboard
     restart: unless-stopped
@@ -26,14 +40,15 @@ services:
     environment:
       - TZ=${TZ:-UTC}
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost:80/health"]
+      # SPA serves index.html for all routes — /health does not exist
+      test: ["CMD", "wget", "-qO-", "http://localhost:80/"]
       interval: 30s
       timeout: 10s
       retries: 3
       start_period: 10s
     labels:
       - "com.agent-dashboard.service=frontend"
-      - "com.agent-dashboard.version=${APP_VERSION:-1.0.0}"
+      - "com.agent-dashboard.version=${APP_VERSION:-1.0.1}"
     networks:
       - agent-net
     logging:
@@ -51,14 +66,23 @@ services:
     container_name: agent-dashboard-dev
     profiles: ["dev"]
     ports:
-      - "${DEV_PORT:-5173}:5173"
+      # Port 3000 matches Vite config (was incorrectly 5173 in v1.0.0)
+      - "${DEV_PORT:-3000}:3000"
     volumes:
+      # Mount source directories for live HMR — changes reflect instantly
       - ./client:/app/client:delegated
       - ./shared:/app/shared:delegated
+      - ./server:/app/server:delegated
+      - ./patches:/app/patches:delegated
+      - ./vite.config.ts:/app/vite.config.ts:delegated
+      - ./tsconfig.json:/app/tsconfig.json:delegated
+      - ./tsconfig.node.json:/app/tsconfig.node.json:delegated
+      # Anonymous volume prevents host node_modules from overwriting container's
       - /app/node_modules
     environment:
       - NODE_ENV=development
       - CHOKIDAR_USEPOLLING=true
+      - TZ=${TZ:-UTC}
     networks:
       - agent-net
 
@@ -83,7 +107,8 @@ services:
   # ── Python Agent Backend (optional, for real agent execution) ─────────────
   agent-backend:
     build:
-      context: ./agent-backend
+      # context corrected: ./agent-backend → ./python-agents (actual folder name)
+      context: ./python-agents
       dockerfile: Dockerfile.python
     image: agent-backend:latest
     container_name: agent-backend
@@ -99,12 +124,13 @@ services:
     volumes:
       - agent-data:/app/data
       - agent-logs:/app/logs
-      - ./products_vectorstore:/app/products_vectorstore:ro
+      - ./python-agents/products_vectorstore:/app/products_vectorstore:ro
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
       interval: 30s
       timeout: 10s
       retries: 3
+      start_period: 15s
     networks:
       - agent-net
     logging:
@@ -113,7 +139,7 @@ services:
         max-size: "50m"
         max-file: "10"
 
-  # ── Log Aggregator (optional) ─────────────────────────────────────────────
+  # ── Log Viewer / Dozzle (optional monitoring) ─────────────────────────────
   log-viewer:
     image: amir20/dozzle:latest
     container_name: agent-log-viewer

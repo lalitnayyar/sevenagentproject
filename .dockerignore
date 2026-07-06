@@ -1,0 +1,66 @@
+# ──────────────────────────────────────────────────────────────────────────────
+# .dockerignore — 7-Agent Price Intelligence Dashboard
+# Prevents large/sensitive directories from being sent to Docker build context
+# Without this, node_modules (~500MB) gets sent on every build = very slow
+# ──────────────────────────────────────────────────────────────────────────────
+
+# Node.js dependencies (rebuilt inside container via pnpm install)
+node_modules/
+**/node_modules/
+
+# Build output (rebuilt inside container via pnpm run build)
+dist/
+**/dist/
+
+# Git history (not needed in image)
+.git/
+.gitignore
+
+# Manus platform files (dev-only tooling)
+.manus/
+.manus-logs/
+.project-config.json
+
+# Environment files with secrets (use --build-arg or docker-compose env_file)
+.env
+.env.local
+.env.*.local
+
+# Editor / IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# Test and coverage output
+coverage/
+*.test.ts
+*.spec.ts
+
+# Logs
+*.log
+logs/
+
+# Python agent files (not needed for React frontend image)
+python-agents/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+
+# Docker files themselves (avoid recursive copy confusion)
+Dockerfile*
+docker-compose*.yml
+.dockerignore
+
+# Scripts (not needed inside the container)
+scripts/
+
+# Documentation
+docs/
+README.md
+prompt.md
