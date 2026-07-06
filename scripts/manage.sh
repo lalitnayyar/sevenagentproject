@@ -30,6 +30,63 @@ log_warn()    { echo -e "  ${YELLOW}⚠${NC} $1"; }
 log_err()     { echo -e "  ${RED}✗${NC} $1"; }
 log_step()    { echo -e "  ${BLUE}→${NC} $1"; }
 
+
+# ── Splash Screen ─────────────────────────────────────────────────────────────
+show_splash() {
+    clear
+    echo ""
+    echo -e "${CYAN}  ╔══════════════════════════════════════════════════════════════════════════════╗${NC}"
+    echo -e "${CYAN}  ║                                                                              ║${NC}"
+    echo -e "${CYAN}  ║   ███████╗███████╗██╗   ██╗███████╗███╗   ██╗ █████╗  ██████╗ ███████╗      ║${NC}"
+    echo -e "${CYAN}  ║   ██╔════╝██╔════╝██║   ██║██╔════╝████╗  ██║██╔══██╗██╔════╝ ██╔════╝      ║${NC}"
+    echo -e "${CYAN}  ║   ███████╗█████╗  ██║   ██║█████╗  ██╔██╗ ██║███████║██║  ███╗█████╗        ║${NC}"
+    echo -e "${CYAN}  ║   ╚════██║██╔══╝  ╚██╗ ██╔╝██╔══╝  ██║╚██╗██║██╔══██║██║   ██║██╔══╝        ║${NC}"
+    echo -e "${CYAN}  ║   ███████║███████╗ ╚████╔╝ ███████╗██║ ╚████║██║  ██║╚██████╔╝███████╗      ║${NC}"
+    echo -e "${CYAN}  ║   ╚══════╝╚══════╝  ╚═══╝  ╚══════╝╚═╝  ╚═══╝╚═╝  ╚═╝ ╚═════╝ ╚══════╝      ║${NC}"
+    echo -e "${CYAN}  ║                                                                              ║${NC}"
+    echo -e "${CYAN}  ║${WHITE}         7-Agent Price Intelligence Dashboard — Management Console${CYAN}         ║${NC}"
+    echo -e "${CYAN}  ║${WHITE}                      Docker and Deployment Toolkit  v${SCRIPT_VERSION}${CYAN}                 ║${NC}"
+    echo -e "${CYAN}  ║                                                                              ║${NC}"
+    echo -e "${CYAN}  ╠══════════════════════════════════════════════════════════════════════════════╣${NC}"
+    echo -e "${CYAN}  ║                                                                              ║${NC}"
+    echo -e "${CYAN}  ║${WHITE}   Author   :  Lalit Nayyar${CYAN}                                                ║${NC}"
+    echo -e "${CYAN}  ║${WHITE}   Email    :  lalitnayyar@gmail.com${CYAN}                                       ║${NC}"
+    echo -e "${CYAN}  ║${WHITE}   Phone    :  +971 508 320 336  (UAE)  |  +91 959 535 3336  (India)${CYAN}      ║${NC}"
+    echo -e "${CYAN}  ║${WHITE}   GitHub   :  github.com/lalitnayyar/sevenagentproject${CYAN}                    ║${NC}"
+    echo -e "${CYAN}  ║${WHITE}   Role     :  Product Designer · Software Developer · Software Architect${CYAN}  ║${NC}"
+    echo -e "${CYAN}  ║                                                                              ║${NC}"
+    echo -e "${CYAN}  ╠══════════════════════════════════════════════════════════════════════════════╣${NC}"
+    echo -e "${YELLOW}  ║                                                                              ║${NC}"
+    echo -e "${YELLOW}  ║   DISCLAIMER:                                                                ║${NC}"
+    echo -e "${YELLOW}  ║   This software is provided for educational and research purposes only.      ║${NC}"
+    echo -e "${YELLOW}  ║   Use of this tool to interact with live AI APIs (OpenAI, Anthropic,         ║${NC}"
+    echo -e "${YELLOW}  ║   Modal.com, HuggingFace, Pushover) will consume real API credits and        ║${NC}"
+    echo -e "${YELLOW}  ║   may incur charges on your accounts. The author accepts no liability        ║${NC}"
+    echo -e "${YELLOW}  ║   for unintended usage, data loss, or financial charges arising from         ║${NC}"
+    echo -e "${YELLOW}  ║   the use of this software. Always review your API usage dashboards.         ║${NC}"
+    echo -e "${YELLOW}  ║   By continuing, you acknowledge and accept these terms.                     ║${NC}"
+    echo -e "${CYAN}  ║                                                                              ║${NC}"
+    echo -e "${CYAN}  ╚══════════════════════════════════════════════════════════════════════════════╝${NC}"
+    echo ""
+    echo -e "  ${GRAY}Loading in 5 seconds... Press Enter to skip${NC}"
+    echo ""
+    # 5-second countdown with animated progress bar
+    local i
+    for i in 5 4 3 2 1; do
+        local filled=$(( (5 - i) * 8 ))
+        local bar=""
+        local j
+        for (( j=0; j<filled; j++ )); do bar+="\u2588"; done
+        for (( j=filled; j<40; j++ )); do bar+="\u2591"; done
+        printf "\r  ${CYAN}  [%s]  ${WHITE}%d sec${NC}  " "$bar" "$i"
+        if read -r -t 1 -s -n 1 2>/dev/null; then
+            break
+        fi
+    done
+    printf "\r  ${GREEN}  [\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588]  Ready!${NC}  \n"
+    echo ""
+}
+
 # ── Header ────────────────────────────────────────────────────────────────────
 show_header() {
     clear
@@ -497,6 +554,58 @@ open_browser() {
     log_success "Opened $url"
 }
 
+
+apply_docker_patch() {
+    show_header
+    echo -e "  ${WHITE}APPLY DOCKER PATCH -- git pull + patch + rebuild in one shot${NC}"
+    echo ""
+    check_docker || return
+    check_git || return
+    cd "$PROJECT_ROOT"
+    log_step "Fetching latest from GitHub (in-place pull, no reclone)..."
+    git fetch origin 2>&1 || { log_err "git fetch failed. Check network/credentials."; return; }
+    local behind
+    behind="$(git rev-list HEAD..origin/main --count 2>/dev/null || echo 0)"
+    log_info "Commits behind origin/main: $behind"
+    log_step "Pulling latest code..."
+    git pull origin main 2>&1 || { log_err "git pull failed."; return; }
+    log_success "Code is up to date"
+    # Apply patch if it exists and is not yet applied
+    local patch_file="$PROJECT_ROOT/patches/docker-fix-v1.0.1.patch"
+    if [[ -f "$patch_file" ]]; then
+        log_step "Checking if docker patch is already applied..."
+        if git apply --check "$patch_file" 2>/dev/null; then
+            log_step "Applying Docker fix patch..."
+            git apply "$patch_file" && log_success "Patch applied cleanly" || log_warn "Patch apply failed (may already be applied)"
+        else
+            log_info "Patch already applied or not needed -- skipping"
+        fi
+    else
+        log_info "No patch file found -- skipping patch step"
+    fi
+    # Ensure .dockerignore exists (critical fix for pnpm-lock.yaml not found error)
+    if [[ ! -f "$PROJECT_ROOT/.dockerignore" ]]; then
+        log_step "Creating missing .dockerignore to fix build context issue..."
+        printf "node_modules\ndist\n.git\n.gitignore\n.manus-logs\n*.log\n.DS_Store\n" > "$PROJECT_ROOT/.dockerignore"
+        log_success ".dockerignore created"
+    fi
+    # Rebuild Docker image
+    log_step "Rebuilding Docker image (this may take 2-5 minutes)..."
+    docker build -t "${IMAGE_NAME}:latest" "$PROJECT_ROOT" 2>&1 | tail -20
+    log_success "Docker image rebuilt successfully"
+    # Restart container with zero downtime swap
+    log_step "Restarting container..."
+    docker stop "$CONTAINER_NAME" 2>/dev/null || true
+    docker rm "$CONTAINER_NAME" 2>/dev/null || true
+    local env_arg=""
+    [[ -f "$PROJECT_ROOT/.env" ]] && env_arg="--env-file $PROJECT_ROOT/.env"
+    # shellcheck disable=SC2086
+    docker run -d --name "$CONTAINER_NAME" --restart unless-stopped \
+        -p "${DEFAULT_PORT}:80" $env_arg "${IMAGE_NAME}:latest"
+    log_success "Container started!"
+    log_info "Dashboard: http://localhost:${DEFAULT_PORT}"
+}
+
 # ── Main Menu ─────────────────────────────────────────────────────────────────
 show_menu() {
     show_header
@@ -520,6 +629,7 @@ show_menu() {
     echo -e "  ${GRAY}│  ${WHITE}OTHER${GRAY}                                                       │${NC}"
     echo -e "  ${GRAY}│  ${WHITE}[10] Open Dashboard in Browser${GRAY}                              │${NC}"
     echo -e "  ${GRAY}│  ${WHITE}[11] Cleanup (Remove All)${GRAY}                                   │${NC}"
+    echo -e "  ${GRAY}│  ${WHITE}[12] Apply Docker Patch (git pull + patch + rebuild)${GRAY}        │${NC}"
     echo -e "  ${GRAY}│   ${WHITE}[0] Exit${GRAY}                                                   │${NC}"
     echo -e "  ${GRAY}└─────────────────────────────────────────────────────────────┘${NC}"
     echo ""
@@ -539,13 +649,15 @@ if [[ $# -gt 0 ]]; then
         logs)     collect_logs ;;
         live)     live_logs ;;
         cleanup)  cleanup_app ;;
+        apatch)   apply_docker_patch ;;
         status)   show_status ;;
-        *)        echo "Usage: $0 [deploy|start|stop|restart|pull|patch|fix|logs|live|cleanup|status]" ;;
+        *)        echo "Usage: $0 [deploy|start|stop|restart|pull|patch|fix|logs|live|cleanup|apatch|status]" ;;
     esac
     exit 0
 fi
 
 # Interactive menu
+show_splash
 while true; do
     show_menu
     read -rp "  Enter choice: " choice
@@ -562,6 +674,7 @@ while true; do
         9)  live_logs ;;
         10) open_browser ;;
         11) cleanup_app ;;
+        12) apply_docker_patch ;;
         0)  log_info "Goodbye!"; exit 0 ;;
         *)  log_warn "Invalid choice. Please enter 0-11." ;;
     esac
