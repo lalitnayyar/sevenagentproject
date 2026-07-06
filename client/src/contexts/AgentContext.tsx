@@ -399,8 +399,8 @@ export function AgentProvider({ children }: { children: React.ReactNode }) {
   const settingsRef = useRef<AppSettings>(defaultSettings);
   const dealsRef = useRef<Deal[]>(sampleDeals);
 
-  // tRPC mutation for real Pushover delivery
-  const pushoverMutation = trpc.agents.sendPushoverNotification.useMutation();
+  // tRPC mutation for real Pushover auto-delivery (uses server-side env vars — no localStorage needed)
+  const autoNotifyMutation = trpc.agents.autoNotify.useMutation();
   // Keep settingsRef in sync with state so simulateAgentRun always reads fresh creds
   const [settings, setSettings] = useState<AppSettings>(() => {
     try {
@@ -450,40 +450,36 @@ export function AgentProvider({ children }: { children: React.ReactNode }) {
 
         // When messenger reaches the delivery log line, fire the real Pushover API
         if (id === "messenger" && entry.msg === PUSHOVER_DELIVER_MSG) {
+          // Pick the highest-discount deal from current deals list
+          const allDeals = dealsRef.current;
+          const best = allDeals.length > 0
+            ? [...allDeals].sort((a, b) => b.discount - a.discount)[0]
+            : null;
+          const dealMsg = best
+            ? `🔥 Deal Alert! ${best.product} is now only $${best.price.toFixed(2)} — estimated value $${best.estimate.toFixed(2)}. Save $${best.discount.toFixed(2)}!`
+            : "🔥 7-Agent Price Intelligence found a great deal — check your dashboard!";
+          // Use autoNotify — reads PUSHOVER_USER/PUSHOVER_TOKEN from server env vars.
+          // Also pass localStorage creds as fallback in case env vars are not set.
           const creds = settingsRef.current;
-          const userKey = creds.pushoverUser?.trim();
-          const token   = creds.pushoverToken?.trim();
-          if (userKey && token) {
-            // Pick the highest-discount deal from current deals list
-            const allDeals = dealsRef.current;
-            const best = allDeals.length > 0
-              ? [...allDeals].sort((a, b) => b.discount - a.discount)[0]
-              : null;
-            const dealMsg = best
-              ? `🔥 Deal Alert! ${best.product} is now only $${best.price.toFixed(2)} — estimated value $${best.estimate.toFixed(2)}. Save $${best.discount.toFixed(2)}!`
-              : "🔥 7-Agent Price Intelligence found a great deal — check your dashboard!";
-            pushoverMutation.mutate({
-              userKey,
-              token,
-              title: "7-Agent Price Intelligence",
-              message: dealMsg.slice(0, 512),
-              sound: "cashregister",
-              url: best?.url,
-            }, {
-              onSuccess: (result) => {
-                if (result.success) {
-                  addLog("messenger", "success", `[MessagingAgent] ✅ Real Pushover delivery confirmed — latency ${result.latency}ms`);
-                } else {
-                  addLog("messenger", "warn", `[MessagingAgent] ⚠️ Pushover returned error: ${result.message}`);
-                }
-              },
-              onError: (err) => {
-                addLog("messenger", "warn", `[MessagingAgent] ⚠️ Pushover request failed: ${err.message}`);
-              },
-            });
-          } else {
-            addLog("messenger", "warn", "[MessagingAgent] ⚠️ Pushover credentials not configured — skipping real delivery. Add them in Command Vault → Pushover tab.");
-          }
+          autoNotifyMutation.mutate({
+            title: "7-Agent Price Intelligence",
+            message: dealMsg.slice(0, 512),
+            sound: "cashregister",
+            url: best?.url,
+            userKey: creds.pushoverUser?.trim() || undefined,
+            token: creds.pushoverToken?.trim() || undefined,
+          }, {
+            onSuccess: (result) => {
+              if (result.success) {
+                addLog("messenger", "success", `[MessagingAgent] ✅ Real Pushover delivery confirmed — latency ${result.latency}ms`);
+              } else {
+                addLog("messenger", "warn", `[MessagingAgent] ⚠️ Pushover returned error: ${result.message}`);
+              }
+            },
+            onError: (err) => {
+              addLog("messenger", "warn", `[MessagingAgent] ⚠️ Pushover request failed: ${err.message}`);
+            },
+          });
         }
 
         i++;
@@ -508,7 +504,7 @@ export function AgentProvider({ children }: { children: React.ReactNode }) {
       }
     }, 550);
     timersRef.current.set(id, interval);
-  }, [addLog, pushoverMutation]);
+  }, [addLog, autoNotifyMutation]);
 
   const startAgent = useCallback((id: string) => {
     const existing = timersRef.current.get(id);

@@ -1,5 +1,6 @@
 import { COOKIE_NAME } from "@shared/const";
 import { getSessionCookieOptions } from "./_core/cookies";
+import { ENV } from "./_core/env";
 import { systemRouter } from "./_core/systemRouter";
 import { publicProcedure, router } from "./_core/trpc";
 import { z } from "zod";
@@ -65,6 +66,58 @@ const agentsRouter = router({
           latency: Date.now() - start,
           message: `Network error: ${err instanceof Error ? err.message : String(err)}`,
         };
+      }
+    }),
+
+  // ── Auto-Notify: Fire Pushover using server-side env credentials ─────────
+  // Called by MessagingAgent auto-trigger — no browser localStorage needed.
+  // Falls back to client-supplied keys if env vars are not set.
+  autoNotify: publicProcedure
+    .input(z.object({
+      title: z.string().optional(),
+      message: z.string().min(1),
+      sound: z.string().optional().default("cashregister"),
+      url: z.string().optional(),
+      // Optional client-side fallback keys (used when env vars are empty)
+      userKey: z.string().optional(),
+      token: z.string().optional(),
+    }))
+    .mutation(async ({ input }) => {
+      const start = Date.now();
+      // Prefer server-side env vars; fall back to client-supplied keys
+      const user  = ENV.pushoverUser  || input.userKey  || "";
+      const token = ENV.pushoverToken || input.token    || "";
+      if (!user || !token) {
+        return {
+          success: false,
+          latency: Date.now() - start,
+          message: "Pushover credentials not configured. Set PUSHOVER_USER and PUSHOVER_TOKEN in Command Vault or server env.",
+        };
+      }
+      try {
+        const body = new URLSearchParams({
+          token,
+          user,
+          title: input.title ?? "7-Agent Price Intelligence",
+          message: input.message,
+          sound: input.sound ?? "cashregister",
+          priority: "0",
+        });
+        if (input.url) body.set("url", input.url);
+        const res = await fetch("https://api.pushover.net/1/messages.json", {
+          method: "POST",
+          headers: { "Content-Type": "application/x-www-form-urlencoded" },
+          body: body.toString(),
+        });
+        const data = await res.json() as Record<string, unknown>;
+        const latency = Date.now() - start;
+        if (res.ok && data.status === 1) {
+          return { success: true, latency, message: "Notification delivered successfully!", request: data.request as string | undefined };
+        } else {
+          return { success: false, latency, message: (data.errors as string[] | undefined)?.join(", ") ?? "Pushover returned an error" };
+        }
+      } catch (err) {
+        return { success: false, latency: Date.now() - start, message: `Network error: ${err instanceof Error ? err.message : String(err)}` };
       }
     }),
 
