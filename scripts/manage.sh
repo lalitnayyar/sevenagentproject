@@ -127,7 +127,7 @@ show_status() {
     if [[ "$status" == "running" ]]; then
         log_success "Container '$CONTAINER_NAME' is RUNNING"
         local port
-        port="$(docker port "$CONTAINER_NAME" 80 2>/dev/null || echo "")"
+        port="$(docker port "$CONTAINER_NAME" 3000 2>/dev/null || echo "")"
         [[ -n "$port" ]] && log_info "  Accessible at: http://localhost:${DEFAULT_PORT}"
     elif [[ "$status" != "not_found" ]]; then
         log_warn "Container '$CONTAINER_NAME' status: $status"
@@ -182,7 +182,7 @@ deploy_app() {
     docker run -d \
         --name "$CONTAINER_NAME" \
         --restart unless-stopped \
-        -p "${DEFAULT_PORT}:80" \
+        -p "${DEFAULT_PORT}:3000" \
         $env_arg \
         "${IMAGE_NAME}:latest"
 
@@ -285,7 +285,7 @@ pull_and_rebuild() {
             [[ -f "$env_file" ]] && env_arg="--env-file $env_file"
             # shellcheck disable=SC2086
             docker run -d --name "$CONTAINER_NAME" --restart unless-stopped \
-                -p "${DEFAULT_PORT}:80" $env_arg "${IMAGE_NAME}:latest"
+                -p "${DEFAULT_PORT}:3000" $env_arg "${IMAGE_NAME}:latest"
             log_success "Rebuild complete! Dashboard: http://localhost:${DEFAULT_PORT}"
         fi
     else
@@ -312,7 +312,7 @@ patch_app() {
     [[ -f "$env_file" ]] && env_arg="--env-file $env_file"
     # shellcheck disable=SC2086
     docker run -d --name "$CONTAINER_NAME" --restart unless-stopped \
-        -p "${DEFAULT_PORT}:80" $env_arg "${IMAGE_NAME}:latest"
+        -p "${DEFAULT_PORT}:3000" $env_arg "${IMAGE_NAME}:latest"
 
     log_success "Patch applied! Dashboard: http://localhost:${DEFAULT_PORT}"
 }
@@ -379,7 +379,7 @@ fix_app() {
             [[ -f "$env_file" ]] && env_arg="--env-file $env_file"
             # shellcheck disable=SC2086
             docker run -d --name "$CONTAINER_NAME" --restart unless-stopped \
-                -p "${DEFAULT_PORT}:80" $env_arg "${IMAGE_NAME}:latest"
+                -p "${DEFAULT_PORT}:3000" $env_arg "${IMAGE_NAME}:latest"
             log_success "Container started"
         fi
         log_step "Pruning unused Docker resources..."
@@ -601,7 +601,7 @@ apply_docker_patch() {
     [[ -f "$PROJECT_ROOT/.env" ]] && env_arg="--env-file $PROJECT_ROOT/.env"
     # shellcheck disable=SC2086
     docker run -d --name "$CONTAINER_NAME" --restart unless-stopped \
-        -p "${DEFAULT_PORT}:80" $env_arg "${IMAGE_NAME}:latest"
+        -p "${DEFAULT_PORT}:3000" $env_arg "${IMAGE_NAME}:latest"
     log_success "Container started!"
     log_info "Dashboard: http://localhost:${DEFAULT_PORT}"
 }

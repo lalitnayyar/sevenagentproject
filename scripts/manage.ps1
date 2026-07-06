@@ -128,7 +128,7 @@ function Deploy-App {
     docker run -d `
         --name $CONTAINER_NAME `
         --restart unless-stopped `
-        -p "${DEFAULT_PORT}:80" `
+        -p "${DEFAULT_PORT}:3000" `
         --env-file $envFile `
         "${IMAGE_NAME}:latest"
 
@@ -229,7 +229,7 @@ function Pull-AndRebuild {
             docker rm $CONTAINER_NAME 2>$null
             $envFile = Join-Path $projectRoot ".env"
             $envArg = if (Test-Path $envFile) { @("--env-file", $envFile) } else { @() }
-            docker run -d --name $CONTAINER_NAME --restart unless-stopped -p "${DEFAULT_PORT}:80" @envArg "${IMAGE_NAME}:latest"
+            docker run -d --name $CONTAINER_NAME --restart unless-stopped -p "${DEFAULT_PORT}:3000" @envArg "${IMAGE_NAME}:latest"
             Write-Success "Rebuild complete! Dashboard: http://localhost:$DEFAULT_PORT"
         }
     } else {
@@ -254,7 +254,7 @@ function Patch-App {
     docker tag "${IMAGE_NAME}:patch-$TIMESTAMP" "${IMAGE_NAME}:latest"
     $envFile = Join-Path $projectRoot ".env"
     $envArg = if (Test-Path $envFile) { @("--env-file", $envFile) } else { @() }
-    docker run -d --name $CONTAINER_NAME --restart unless-stopped -p "${DEFAULT_PORT}:80" @envArg "${IMAGE_NAME}:latest"
+    docker run -d --name $CONTAINER_NAME --restart unless-stopped -p "${DEFAULT_PORT}:3000" @envArg "${IMAGE_NAME}:latest"
     Write-Success "Patch applied! Dashboard: http://localhost:$DEFAULT_PORT"
 }
 
@@ -311,7 +311,7 @@ function Fix-App {
             docker stop $CONTAINER_NAME 2>$null
             docker rm $CONTAINER_NAME 2>$null
             $envArg = if (Test-Path $envFile) { "--env-file $envFile" } else { "" }
-            Invoke-Expression "docker run -d --name $CONTAINER_NAME --restart unless-stopped -p ${DEFAULT_PORT}:80 $envArg ${IMAGE_NAME}:latest"
+            Invoke-Expression "docker run -d --name $CONTAINER_NAME --restart unless-stopped -p ${DEFAULT_PORT}:3000 $envArg ${IMAGE_NAME}:latest"
             Write-Success "Container started"
         }
         Write-Step "Pruning unused Docker resources..."
