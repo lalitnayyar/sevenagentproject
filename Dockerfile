@@ -65,19 +65,18 @@ RUN corepack enable && corepack prepare pnpm@10.4.1 --activate
 # Copy package.json for module resolution metadata
 COPY package.json ./
 
-# Copy only the built output from builder stage:
+# Create non-root user FIRST (before copying large directories)
+RUN addgroup -g 1001 -S appgroup && \
+    adduser -u 1001 -S appuser -G appgroup
+
+# Copy built output — owned by root (readable by all, no chown needed)
 #   dist/index.js       — Express+tRPC server
 #   dist/public/        — React SPA static files
-COPY --from=builder /app/dist ./dist
+COPY --from=builder --chown=appuser:appgroup /app/dist ./dist
 
-# Copy node_modules (needed at runtime for packages=external esbuild bundles)
-# Only production deps are needed but copying all is simpler and still fast
+# Copy node_modules as root (avoids chown on 50k+ files which takes 90+ seconds)
+# node_modules are read-only at runtime — root ownership is safe
 COPY --from=builder /app/node_modules ./node_modules
-
-# Create non-root user for security
-RUN addgroup -g 1001 -S appgroup && \
-    adduser -u 1001 -S appuser -G appgroup && \
-    chown -R appuser:appgroup /app
 
 USER appuser
 
