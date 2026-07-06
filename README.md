@@ -681,6 +681,25 @@ Bind for 0.0.0.0:3000 failed: port is already allocated
 
 ## Changelog
 
+### v2.2.0 — Top-3 Auto-Notify on Scanner Agent Run
+
+| Change | Details |
+|---|---|
+| **Screen 3 — Run Scanner Agent** | Clicking "Run Scanner Agent" now automatically sends the **top 3 deals by discount** as separate Pushover notifications via the `autoNotify` tRPC procedure. Notifications are staggered 1.2 seconds apart to avoid Pushover rate limiting. |
+| **Visual status badge** | A live badge appears next to the Run button showing "Sending top-3 deal alerts..." (blue spinner) while notifications are in flight, and "X of 3 top deals notified via Pushover" (green) when complete. |
+| **Medal titles** | Each notification has a distinct title: 🥇 Deal #1, 🥈 Deal #2, 🥉 Deal #3 — sorted by highest discount. |
+| **No credentials required in browser** | Uses server-side `PUSHOVER_USER` / `PUSHOVER_TOKEN` env vars — works without saving keys to Command Vault. |
+
+### v2.1.0 — Server-Side Auto-Notification (autoNotify Procedure)
+
+| Change | Details |
+|---|---|
+| **Root cause fixed** | MessagingAgent auto-trigger was silently skipping the real Pushover call because it read credentials from `localStorage` (Command Vault), which was empty if the user had never visited that screen. |
+| **`autoNotify` tRPC procedure** | New server-side procedure reads `PUSHOVER_USER` and `PUSHOVER_TOKEN` directly from `process.env` — no browser localStorage required. Falls back to per-request credentials if provided. |
+| **`server/_core/env.ts` updated** | `PUSHOVER_USER` and `PUSHOVER_TOKEN` added to the ENV object so they are available to all server procedures. |
+| **Vitest test added** | `server/auto-notify.test.ts` validates env credentials and fires a real Pushover delivery — all 4 tests pass including live API call. |
+| **`.env` required keys** | Add `PUSHOVER_USER` and `PUSHOVER_TOKEN` to your `.env` file for auto-notifications to work in Docker. |
+
 ### v2.0.0 — Architecture Overhaul + Real Notifications + Port Conflict Handling
 
 > **Breaking change:** Container runtime changed from Nginx to Node.js. Run `docker rmi agent-dashboard:latest` before rebuilding to clear the old image. Use option [5] UPDATE in the management script to handle this automatically.
@@ -743,9 +762,17 @@ Run the UPDATE command (option [5]) — it automatically kills whatever is holdi
 
 ### Pushover notifications not arriving
 
+**For auto-notifications (Scanner Agent / MessagingAgent auto-run):**
+1. Ensure `PUSHOVER_USER` and `PUSHOVER_TOKEN` are set in your `.env` file — these are read server-side and are required for auto-notifications.
+2. Rebuild and restart the container after editing `.env`: run option [5] UPDATE in `manage.sh`.
+3. Check Docker logs: `docker logs agent-dashboard --tail 30` — look for `autoNotify` calls and any error messages.
+
+**For manual Notify button (Screen 3 deal table):**
 1. Verify credentials in **Command Vault → Pushover tab** — the status indicator should show green.
 2. Click **Test Pushover** — if it shows success but no notification arrives, check your Pushover app's notification settings and device list.
 3. Ensure the Pushover app is installed and notifications are enabled on your phone.
+
+**Credential priority:** Server env vars (`PUSHOVER_USER` / `PUSHOVER_TOKEN` in `.env`) take priority for auto-notifications. Command Vault (localStorage) is used only for the manual Notify dialog.
 
 ---
 

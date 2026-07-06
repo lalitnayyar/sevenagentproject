@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -55,13 +55,58 @@ export default function Screen3ScannerMessenger() {
   const [customMessage, setCustomMessage] = useState("");
   const [sound, setSound] = useState("cashregister");
 
-  // tRPC mutation — server-side call, no CORS issues
+  // tRPC mutations — server-side calls, no CORS issues
   const sendNotification = trpc.agents.sendPushoverNotification.useMutation();
+  const autoNotify = trpc.agents.autoNotify.useMutation();
+  const [autoNotifying, setAutoNotifying] = useState(false);
+  const [notifiedCount, setNotifiedCount] = useState(0);
+  const autoNotifyRef = useRef(autoNotify);
+  useEffect(() => { autoNotifyRef.current = autoNotify; }, [autoNotify]);
+
+  // Fire top-3 deal notifications after scan completes
+  useEffect(() => {
+    if (!autoNotifying || deals.length === 0) return;
+    setAutoNotifying(false);
+
+    const medals = ["\uD83E\uDD47 Deal #1", "\uD83E\uDD48 Deal #2", "\uD83E\uDD49 Deal #3"];
+    const top3 = [...deals]
+      .sort((a, b) => b.discount - a.discount)
+      .slice(0, 3);
+
+    top3.forEach((deal, idx) => {
+      setTimeout(async () => {
+        const msg = `${deal.product} — now $${deal.price.toFixed(2)} (save $${deal.discount.toFixed(2)})`;
+        try {
+          const result = await autoNotifyRef.current.mutateAsync({
+            title: `7-Agent ${medals[idx]}`,
+            message: msg.slice(0, 512),
+            sound: "cashregister",
+            url: deal.url,
+          });
+          if (result.success) {
+            setNotifiedCount(prev => prev + 1);
+            toast.success(`${medals[idx]} notification sent! 🔔`, {
+              description: `${deal.product.slice(0, 40)}... • ${result.latency}ms`,
+            });
+          } else {
+            toast.error(`Notification #${idx + 1} failed`, { description: result.message });
+          }
+        } catch (err) {
+          toast.error(`Notification #${idx + 1} error`, {
+            description: err instanceof Error ? err.message : "Unknown error",
+          });
+        }
+      }, idx * 1200); // stagger 1.2s apart to avoid Pushover rate limiting
+    });
+  }, [autoNotifying, deals]);
 
   const handleScan = async () => {
     setScanning(true);
+    setNotifiedCount(0);
     startAgent("scanner");
     await new Promise(r => setTimeout(r, 8000));
+
+    // Add a fresh deal from this scan run
     addDeal({
       product: "Sony WH-1000XM5 Wireless Noise Canceling Headphones",
       price: 199,
@@ -69,8 +114,14 @@ export default function Screen3ScannerMessenger() {
       discount: 150.99,
       url: "https://www.dealnews.com/Sony-WH-1000XM5",
     });
+
     toast.success("Scanner found new deals!");
     setScanning(false);
+
+    // After scan completes, fire top-3 deal notifications via server-side autoNotify
+    // We read deals from context — but addDeal is async state update, so wait one tick
+    await new Promise(r => setTimeout(r, 200));
+    setAutoNotifying(true);
   };
 
   const openNotifyDialog = (deal: Deal) => {
@@ -162,10 +213,24 @@ export default function Screen3ScannerMessenger() {
               <p>• <strong>DealSelection</strong> Pydantic model enforces structured output with 5 best deals</p>
               <p>• Memory filter: URLs already seen in previous runs are excluded from selection</p>
             </div>
-            <Button className="mt-4 gap-2 w-full md:w-auto" onClick={handleScan} disabled={scanning}>
-              <Rss className="w-4 h-4" />
-              {scanning ? "Scanning RSS Feeds..." : "Run Scanner Agent"}
-            </Button>
+            <div className="mt-4 flex flex-wrap items-center gap-3">
+              <Button className="gap-2" onClick={handleScan} disabled={scanning}>
+                <Rss className="w-4 h-4" />
+                {scanning ? "Scanning RSS Feeds..." : "Run Scanner Agent"}
+              </Button>
+              {notifiedCount > 0 && (
+                <div className="flex items-center gap-1.5 text-xs text-green-600 bg-green-50 border border-green-200 rounded-full px-3 py-1">
+                  <Bell className="w-3.5 h-3.5" />
+                  <span>{notifiedCount} of 3 top deals notified via Pushover</span>
+                </div>
+              )}
+              {autoNotifying && (
+                <div className="flex items-center gap-1.5 text-xs text-blue-600 bg-blue-50 border border-blue-200 rounded-full px-3 py-1">
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  <span>Sending top-3 deal alerts...</span>
+                </div>
+              )}
+            </div>
           </CardContent>
         </Card>
 
