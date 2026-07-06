@@ -228,7 +228,8 @@ function Pull-AndRebuild {
             docker stop $CONTAINER_NAME 2>$null
             docker rm $CONTAINER_NAME 2>$null
             $envFile = Join-Path $projectRoot ".env"
-            docker run -d --name $CONTAINER_NAME --restart unless-stopped -p "${DEFAULT_PORT}:80" --env-file $envFile "${IMAGE_NAME}:latest"
+            $envArg = if (Test-Path $envFile) { @("--env-file", $envFile) } else { @() }
+            docker run -d --name $CONTAINER_NAME --restart unless-stopped -p "${DEFAULT_PORT}:80" @envArg "${IMAGE_NAME}:latest"
             Write-Success "Rebuild complete! Dashboard: http://localhost:$DEFAULT_PORT"
         }
     } else {
@@ -252,7 +253,8 @@ function Patch-App {
     docker rm $CONTAINER_NAME 2>$null
     docker tag "${IMAGE_NAME}:patch-$TIMESTAMP" "${IMAGE_NAME}:latest"
     $envFile = Join-Path $projectRoot ".env"
-    docker run -d --name $CONTAINER_NAME --restart unless-stopped -p "${DEFAULT_PORT}:80" --env-file $envFile "${IMAGE_NAME}:latest"
+    $envArg = if (Test-Path $envFile) { @("--env-file", $envFile) } else { @() }
+    docker run -d --name $CONTAINER_NAME --restart unless-stopped -p "${DEFAULT_PORT}:80" @envArg "${IMAGE_NAME}:latest"
     Write-Success "Patch applied! Dashboard: http://localhost:$DEFAULT_PORT"
 }
 

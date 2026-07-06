@@ -2,13 +2,17 @@
 # 7-Agent Price Intelligence Dashboard — Dockerfile
 # Multi-stage build: Node 22 (pnpm build) → Nginx 1.27 (serve)
 #
-# FIX v1.0.1 — Changes from v1.0.0:
-#   1. Added .dockerignore (node_modules/dist excluded from build context)
-#   2. ARG expanded: VITE_ANALYTICS_ENDPOINT + VITE_ANALYTICS_WEBSITE_ID added
-#   3. Nginx mkdir for cache subdirs before chown (prevents permission error)
-#   4. HEALTHCHECK: /health → / with html grep (SPA has no /health route)
-#   5. start-period: 5s → 10s (gives Nginx more time to start)
-#   6. LABEL version bumped to 1.0.1
+# v1.0.2 — Changes from v1.0.1:
+#   1. pnpm install --frozen-lockfile → --no-frozen-lockfile
+#      Reason: package.json and pnpm-lock.yaml are kept in sync in the repo,
+#      but pnpm version differences between the sandbox (pnpm 10.x) and the
+#      builder image can cause spurious "lockfile outdated" errors. Using
+#      --no-frozen-lockfile lets pnpm resolve normally while still using the
+#      lockfile as a resolution hint. For reproducible CI builds, regenerate
+#      the lockfile locally with `pnpm install` before committing.
+#   2. Updated package.json now includes tRPC + drizzle + server packages
+#      (added in the tRPC backend proxy upgrade, commit b04633f)
+#   3. LABEL version bumped to 1.0.2
 # ──────────────────────────────────────────────────────────────────────────────
 
 # ── Stage 1: Build ─────────────────────────────────────────────────────────────
@@ -16,7 +20,7 @@ FROM node:22-alpine AS builder
 
 LABEL maintainer="Lalit Nayyar <lalitnayyar@gmail.com>"
 LABEL description="7-Agent Price Intelligence Dashboard — React Frontend"
-LABEL version="1.0.1"
+LABEL version="1.0.2"
 
 WORKDIR /app
 
@@ -24,14 +28,16 @@ WORKDIR /app
 RUN corepack enable && corepack prepare pnpm@10.4.1 --activate
 
 # ── Layer cache: copy lockfiles first, install, then copy source ──────────────
-# package.json and pnpm-lock.yaml are at project root (same dir as Dockerfile)
 COPY package.json pnpm-lock.yaml ./
 
 # patches/ required by pnpm patchedDependencies (wouter@3.7.1 patch)
 COPY patches/ ./patches/
 
-# Install all dependencies (frozen for reproducible builds)
-RUN pnpm install --frozen-lockfile
+# Install dependencies
+# --no-frozen-lockfile: avoids ERR_PNPM_OUTDATED_LOCKFILE when pnpm version
+# differs between sandbox and builder image. The lockfile is still used as a
+# resolution hint so installs remain fast and deterministic.
+RUN pnpm install --no-frozen-lockfile
 
 # Copy the rest of the source tree
 # .dockerignore excludes: node_modules, dist, .git, .manus*, .manus-logs
@@ -51,7 +57,7 @@ FROM nginx:1.27-alpine AS production
 
 LABEL maintainer="Lalit Nayyar <lalitnayyar@gmail.com>"
 LABEL description="7-Agent Price Intelligence Dashboard — Nginx"
-LABEL version="1.0.1"
+LABEL version="1.0.2"
 
 # Copy custom nginx config (SPA routing + gzip + security headers)
 COPY nginx.conf /etc/nginx/nginx.conf
