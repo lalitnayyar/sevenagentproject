@@ -588,6 +588,167 @@ pnpm format       # Prettier formatting
 
 ---
 
+## Updating an Existing Deployment
+
+This is the recommended update workflow for all routine updates. It handles code changes, Docker architecture changes, and port conflicts automatically.
+
+### Linux / WSL / Mac
+
+```bash
+cd sevenagentproject
+bash scripts/manage.sh
+# Select [5] UPDATE from the menu
+```
+
+### Windows PowerShell
+
+```powershell
+cd sevenagentproject
+.\scripts\manage.ps1
+# Select [5] UPDATE from the menu
+```
+
+The UPDATE command (option [5]) performs these steps automatically:
+
+1. `git pull origin main` — fetches the latest code
+2. `docker stop` + `docker rm` — removes the old container
+3. `docker rmi` — removes the old image (prevents stale layer cache)
+4. `kill_port 3000` — kills any process or container holding port 3000
+5. `docker build` — rebuilds the image from scratch
+6. `docker run` — starts the new container
+
+### Manual Update (No Script)
+
+```bash
+cd sevenagentproject
+git pull origin main
+
+docker stop agent-dashboard 2>/dev/null; docker rm agent-dashboard 2>/dev/null
+docker rmi agent-dashboard:latest 2>/dev/null
+
+docker build -t agent-dashboard:latest .
+
+docker run -d \
+  --name agent-dashboard \
+  --restart unless-stopped \
+  -p 3000:3000 \
+  agent-dashboard:latest
+
+echo "Done — http://localhost:3000"
+```
+
+---
+
+## Management Script Reference (v2.0.0)
+
+Both `scripts/manage.sh` (Linux/Mac/WSL) and `scripts/manage.ps1` (Windows) provide the same menu:
+
+| Option | Command | Description |
+|---|---|---|
+| **[1]** | Deploy | Full build + start (first-time setup) |
+| **[2]** | Start | Start stopped container |
+| **[3]** | Stop | Stop running container |
+| **[4]** | Restart | Restart container |
+| **[5] ★** | **UPDATE** | **Recommended: pull + rmi + rebuild + restart** |
+| **[6]** | Pull & Rebuild | Interactive: shows commit count, asks to confirm |
+| **[7]** | Patch | Hot patch — rebuild only, no git pull |
+| **[8]** | Fix | Diagnostics + auto-fix |
+| **[9]** | Collect Logs | Gather all logs into a ZIP archive |
+| **[10]** | Live Logs | Follow container logs in real time |
+| **[11]** | Open Browser | Open dashboard in default browser |
+| **[12]** | Cleanup | Remove all containers, images, and volumes |
+| **[0]** | Exit | Quit the script |
+
+> **Option [5] UPDATE** is the correct choice for all routine updates. It always removes the old image before rebuilding, which prevents Docker from using stale cached layers when the architecture changes.
+
+---
+
+## Port Conflict Handling
+
+The management scripts (v2.0.0+) automatically handle port conflicts. When port 3000 is already in use, the script will:
+
+1. Detect which Docker container (if any) is mapped to port 3000 and stop it.
+2. If no Docker container is responsible, find the OS-level process (PID) holding the port using `ss`, `lsof`, or `fuser` on Linux/Mac, and `netstat` on Windows.
+3. Kill that process with `kill -9` (Linux/Mac) or `Stop-Process -Force` (Windows).
+4. Proceed with starting the new container on the now-free port.
+
+This eliminates the error:
+```
+Bind for 0.0.0.0:3000 failed: port is already allocated
+```
+
+---
+
+## Changelog
+
+### v2.0.0 — Architecture Overhaul + Real Notifications + Port Conflict Handling
+
+> **Breaking change:** Container runtime changed from Nginx to Node.js. Run `docker rmi agent-dashboard:latest` before rebuilding to clear the old image. Use option [5] UPDATE in the management script to handle this automatically.
+
+| Change | Details |
+|---|---|
+| **Container runtime** | Nginx → Node.js 22 Alpine. Express+tRPC server now runs inside the container so `/api/trpc` routes work correctly. Eliminates `Unexpected token '<', "<html>"... is not valid JSON` errors. |
+| **Real auto-notifications** | MessagingAgent now fires a real Pushover API call when it reaches the delivery step — not just a simulated log line. Credentials are read from Command Vault (localStorage). |
+| **Port conflict handling** | `kill_port` / `Kill-Port` helper added to both `manage.sh` and `manage.ps1`. Automatically kills any Docker container or OS process holding port 3000 before starting. Eliminates `Bind for 0.0.0.0:3000 failed: port is already allocated`. |
+| **UPDATE command** | New menu option [5] in both scripts: full update in one step (pull + rmi + rebuild + restart). Previous option [5] (Pull & Rebuild) moved to [6]. |
+| **Script version** | Both scripts bumped to v2.0.0. |
+
+### v1.2.0 — tRPC Backend Proxy for API Tests
+
+| Change | Details |
+|---|---|
+| **Screen 8 — Command Vault** | All 5 API test buttons (OpenAI, Anthropic, DeepSeek, HuggingFace, Pushover) now use tRPC backend proxy mutations. Eliminated CORS errors and browser-side fetch calls that returned HTML instead of JSON. |
+| **Screen 3 — Deal Radar** | Notify button opens a full GUI dialog with editable message, 9-sound selector, credentials status indicator, and result panel showing success/failure with latency in ms. |
+
+### v1.1.0 — Missing Files Sync
+
+| Change | Details |
+|---|---|
+| **43 missing files added** | tRPC client (`client/src/lib/trpc.ts`), auth hooks, server `_core/` (13 files), drizzle schema, vitest config, and updated page components were missing from the GitHub repo after the Manus template upgrade. All synced and committed. |
+| **package.json updated** | Added all tRPC/drizzle/server packages (`@trpc/*`, `drizzle-orm`, `dotenv`, `superjson`, `mysql2`, `jose`, `@aws-sdk/*`, `@tanstack/react-query`) and corrected TypeScript version to `5.9.3`. |
+
+### v1.0.1 — Docker Build Fixes
+
+| Change | Details |
+|---|---|
+| **`--no-frozen-lockfile`** | Changed from `--frozen-lockfile` to `--no-frozen-lockfile` in Dockerfile and Dockerfile.dev to fix `ERR_PNPM_OUTDATED_LOCKFILE` build failures. |
+| **Conditional `--env-file`** | `manage.ps1` Pull-AndRebuild and Patch-App now only pass `--env-file` when `.env` exists, fixing `no such file or directory` Docker errors. |
+| **Removed `chown` on node_modules** | Eliminated 97-second Docker build hang caused by recursively `chown`-ing 50,000+ files in `node_modules`. |
+
+### v1.0.0 — Initial Release
+
+Initial 7-agent dashboard with React frontend, simulated agent pipeline, deal radar, vector intelligence, and Command Vault.
+
+---
+
+## Troubleshooting
+
+### Build fails with `ERR_PNPM_OUTDATED_LOCKFILE`
+
+The `package.json` and `pnpm-lock.yaml` are out of sync. Pull the latest code and rebuild:
+
+```bash
+git pull origin main
+docker rmi agent-dashboard:latest 2>/dev/null
+docker build -t agent-dashboard:latest .
+```
+
+### API test buttons show `Unexpected token '<', "<html>"... is not valid JSON`
+
+This means the container is running Nginx (old v1.x image) instead of the Node.js server. The tRPC endpoint `/api/trpc` returns an HTML 404 from Nginx. Fix: run the UPDATE command (option [5]) to rebuild with the v2.0.0 Node.js image.
+
+### Port 3000 already allocated
+
+Run the UPDATE command (option [5]) — it automatically kills whatever is holding port 3000 before starting the container.
+
+### Pushover notifications not arriving
+
+1. Verify credentials in **Command Vault → Pushover tab** — the status indicator should show green.
+2. Click **Test Pushover** — if it shows success but no notification arrives, check your Pushover app's notification settings and device list.
+3. Ensure the Pushover app is installed and notifications are enabled on your phone.
+
+---
+
 ## License
 
 MIT License — see [LICENSE](LICENSE) for details.
@@ -602,5 +763,7 @@ Built on top of the [7-Agent Price Intelligence prototype](https://github.com/la
 **Dashboard UI by:** Lalit Nayyar
 
 ---
+
+> **Disclaimer:** This project is developed and maintained by **Lalit Nayyar** (lalitnayyar@gmail.com | +971508320336 | +919595353336). It is provided as-is for educational and demonstration purposes. API usage costs for OpenAI, Anthropic, and other services are the responsibility of the user.
 
 *Generated with the 7-Agent Dashboard prompt session — see [prompt.md](prompt.md) for the full build conversation.*

@@ -8,14 +8,14 @@
 .AUTHOR
     Lalit Nayyar <lalitnayyar@gmail.com> | +971508320336 | +919595353336
 .VERSION
-    1.0.0
+    2.0.0
 #>
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
 # ── Configuration ─────────────────────────────────────────────────────────────
-$SCRIPT_VERSION = "1.0.0"
+$SCRIPT_VERSION = "2.0.0"
 $APP_NAME       = "agent-dashboard"
 $REPO_URL       = "https://github.com/lalitnayyar/sevenagentproject.git"
 $CONTAINER_NAME = "agent-dashboard"
@@ -68,13 +68,54 @@ function Get-ContainerStatus {
     return $status
 }
 
+# Kill whatever Docker container or OS process is holding the given port
+function Kill-Port {
+    param([int]$Port = $DEFAULT_PORT)
+    Write-Step "Checking if port $Port is in use..."
+
+    # 1. Stop any Docker container mapped to this host port
+    $runningContainers = docker ps --format '{{.Names}}' 2>$null
+    if ($runningContainers) {
+        foreach ($c in $runningContainers) {
+            $portInfo = docker port $c 2>$null
+            if ($portInfo -match "0\.0\.0\.0:${Port}->") {
+                Write-Warn "Docker container '$c' is using port $Port — stopping it..."
+                docker stop $c 2>$null | Out-Null
+                docker rm   $c 2>$null | Out-Null
+                Write-Success "Container '$c' stopped and removed"
+            }
+        }
+    }
+
+    # 2. Kill any OS-level process holding the port
+    $netstatOutput = netstat -ano 2>$null | Select-String ":$Port "
+    if ($netstatOutput) {
+        $pids = $netstatOutput | ForEach-Object {
+            ($_ -split '\s+')[-1]
+        } | Where-Object { $_ -match '^\d+$' } | Select-Object -Unique
+        foreach ($p in $pids) {
+            if ($p -and $p -ne '0') {
+                try {
+                    $proc = Get-Process -Id $p -ErrorAction SilentlyContinue
+                    if ($proc) {
+                        Write-Warn "Port $Port held by PID $p ($($proc.ProcessName)) — killing..."
+                        Stop-Process -Id $p -Force -ErrorAction SilentlyContinue
+                        Write-Success "PID $p killed — port $Port is now free"
+                    }
+                } catch { }
+            }
+        }
+    } else {
+        Write-Success "Port $Port is free"
+    }
+}
+
 function Show-Status {
     Write-Info "Container Status:"
     $status = Get-ContainerStatus
     if ($status -eq "running") {
         Write-Success "Container '$CONTAINER_NAME' is RUNNING"
-        $port = docker port $CONTAINER_NAME 80 2>$null
-        if ($port) { Write-Info "  Accessible at: http://localhost:$DEFAULT_PORT" }
+        Write-Info "  Accessible at: http://localhost:$DEFAULT_PORT"
     } elseif ($status) {
         Write-Warn "Container '$CONTAINER_NAME' status: $status"
     } else {
@@ -124,6 +165,7 @@ function Deploy-App {
     docker stop $CONTAINER_NAME 2>$null
     docker rm $CONTAINER_NAME 2>$null
 
+    Kill-Port $DEFAULT_PORT
     Write-Step "Starting container..."
     docker run -d `
         --name $CONTAINER_NAME `
@@ -203,14 +245,54 @@ function Restart-App {
     Write-Success "Restarted! Dashboard: http://localhost:$DEFAULT_PORT"
 }
 
-function Pull-AndRebuild {
+function Update-App {
     Write-Header
-    Write-Host "  PULL & REBUILD — Pull Latest Code and Rebuild" -ForegroundColor White
+    Write-Host "  UPDATE — Full Update: Pull + Remove Old Image + Rebuild + Restart" -ForegroundColor White
+    Write-Host "  This is the recommended way to apply all code and Docker changes." -ForegroundColor DarkGray
     Write-Host ""
     if (-not (Check-Docker)) { return }
     if (-not (Check-Git)) { return }
 
-    $projectRoot = Join-Path $PSScriptRoot ".."
+    $projectRoot = Resolve-Path (Join-Path $PSScriptRoot "..")
+    Set-Location $projectRoot
+
+    Write-Step "Pulling latest code from GitHub..."
+    git pull origin main
+    if ($LASTEXITCODE -ne 0) { Write-Err "git pull failed. Check network/credentials."; return }
+    $lastCommit = git log -1 --format='%h %s' 2>$null
+    Write-Success "Code up to date — $lastCommit"
+
+    Write-Step "Stopping and removing old container..."
+    docker stop $CONTAINER_NAME 2>$null
+    docker rm   $CONTAINER_NAME 2>$null
+
+    Write-Step "Removing old Docker image (prevents stale layer cache)..."
+    docker rmi "${IMAGE_NAME}:latest" 2>$null
+
+    Write-Step "Rebuilding Docker image from scratch (2-5 minutes)..."
+    docker build -t "${IMAGE_NAME}:latest" $projectRoot
+    if ($LASTEXITCODE -ne 0) { Write-Err "Docker build failed!"; return }
+    Write-Success "Image rebuilt successfully"
+
+    Kill-Port $DEFAULT_PORT
+    Write-Step "Starting updated container on port $DEFAULT_PORT..."
+    $envFile = Join-Path $projectRoot ".env"
+    $envArg = if (Test-Path $envFile) { @("--env-file", $envFile) } else { @() }
+    docker run -d --name $CONTAINER_NAME --restart unless-stopped -p "${DEFAULT_PORT}:3000" @envArg "${IMAGE_NAME}:latest"
+
+    Write-Success "Update complete!"
+    Write-Info  "Dashboard: http://localhost:$DEFAULT_PORT"
+    Write-Info  "Logs:      docker logs $CONTAINER_NAME --tail 20"
+}
+
+function Pull-AndRebuild {
+    Write-Header
+    Write-Host "  PULL & REBUILD — Pull Latest Code and Rebuild (interactive)" -ForegroundColor White
+    Write-Host ""
+    if (-not (Check-Docker)) { return }
+    if (-not (Check-Git)) { return }
+
+    $projectRoot = Resolve-Path (Join-Path $PSScriptRoot "..")
     Set-Location $projectRoot
 
     Write-Step "Fetching latest changes from GitHub..."
@@ -222,18 +304,38 @@ function Pull-AndRebuild {
         if ($choice -ne "n" -and $choice -ne "N") {
             git pull origin main
             Write-Success "Code updated"
-            Write-Step "Rebuilding Docker image..."
-            docker build -t "${IMAGE_NAME}:latest" $projectRoot
-            Write-Step "Restarting container..."
+
+            Write-Step "Stopping and removing old container..."
             docker stop $CONTAINER_NAME 2>$null
-            docker rm $CONTAINER_NAME 2>$null
+            docker rm   $CONTAINER_NAME 2>$null
+
+            Write-Step "Removing old Docker image (ensures clean rebuild — no stale layers)..."
+            docker rmi "${IMAGE_NAME}:latest" 2>$null
+
+            Write-Step "Rebuilding Docker image (this may take 2-5 minutes)..."
+            docker build -t "${IMAGE_NAME}:latest" $projectRoot
+
+            Kill-Port $DEFAULT_PORT
+            Write-Step "Starting updated container..."
             $envFile = Join-Path $projectRoot ".env"
             $envArg = if (Test-Path $envFile) { @("--env-file", $envFile) } else { @() }
             docker run -d --name $CONTAINER_NAME --restart unless-stopped -p "${DEFAULT_PORT}:3000" @envArg "${IMAGE_NAME}:latest"
-            Write-Success "Rebuild complete! Dashboard: http://localhost:$DEFAULT_PORT"
+            Write-Success "Update complete! Dashboard: http://localhost:$DEFAULT_PORT"
         }
     } else {
         Write-Success "Already up to date (HEAD matches origin/main)"
+        $choice = Read-Host "  Force rebuild anyway? (y/N)"
+        if ($choice -eq "y" -or $choice -eq "Y") {
+            docker stop $CONTAINER_NAME 2>$null
+            docker rm   $CONTAINER_NAME 2>$null
+            docker rmi "${IMAGE_NAME}:latest" 2>$null
+            docker build -t "${IMAGE_NAME}:latest" $projectRoot
+            $envFile = Join-Path $projectRoot ".env"
+            $envArg = if (Test-Path $envFile) { @("--env-file", $envFile) } else { @() }
+            Kill-Port $DEFAULT_PORT
+            docker run -d --name $CONTAINER_NAME --restart unless-stopped -p "${DEFAULT_PORT}:3000" @envArg "${IMAGE_NAME}:latest"
+            Write-Success "Rebuild complete! Dashboard: http://localhost:$DEFAULT_PORT"
+        }
     }
 }
 
@@ -254,6 +356,7 @@ function Patch-App {
     docker tag "${IMAGE_NAME}:patch-$TIMESTAMP" "${IMAGE_NAME}:latest"
     $envFile = Join-Path $projectRoot ".env"
     $envArg = if (Test-Path $envFile) { @("--env-file", $envFile) } else { @() }
+    Kill-Port $DEFAULT_PORT
     docker run -d --name $CONTAINER_NAME --restart unless-stopped -p "${DEFAULT_PORT}:3000" @envArg "${IMAGE_NAME}:latest"
     Write-Success "Patch applied! Dashboard: http://localhost:$DEFAULT_PORT"
 }
@@ -310,6 +413,7 @@ function Fix-App {
             }
             docker stop $CONTAINER_NAME 2>$null
             docker rm $CONTAINER_NAME 2>$null
+            Kill-Port $DEFAULT_PORT
             $envArg = if (Test-Path $envFile) { "--env-file $envFile" } else { "" }
             Invoke-Expression "docker run -d --name $CONTAINER_NAME --restart unless-stopped -p ${DEFAULT_PORT}:3000 $envArg ${IMAGE_NAME}:latest"
             Write-Success "Container started"
@@ -471,17 +575,18 @@ function Show-Menu {
     Write-Host "  │   [4] Restart                                                │" -ForegroundColor White
     Write-Host "  ├─────────────────────────────────────────────────────────────┤" -ForegroundColor DarkGray
     Write-Host "  │  UPDATES & FIXES                                             │" -ForegroundColor DarkGray
-    Write-Host "  │   [5] Pull Latest Code & Rebuild                             │" -ForegroundColor White
-    Write-Host "  │   [6] Patch (Hot Patch — rebuild only)                       │" -ForegroundColor White
-    Write-Host "  │   [7] Fix (Diagnostics + Auto-Fix)                           │" -ForegroundColor White
+    Write-Host "  │   [5] UPDATE  <- Recommended: pull+rmi+rebuild+restart       │" -ForegroundColor Green
+    Write-Host "  │   [6] Pull & Rebuild (interactive, shows commit count)        │" -ForegroundColor White
+    Write-Host "  │   [7] Patch (Hot Patch — rebuild only, no pull)               │" -ForegroundColor White
+    Write-Host "  │   [8] Fix (Diagnostics + Auto-Fix)                            │" -ForegroundColor White
     Write-Host "  ├─────────────────────────────────────────────────────────────┤" -ForegroundColor DarkGray
     Write-Host "  │  LOGS & MONITORING                                           │" -ForegroundColor DarkGray
-    Write-Host "  │   [8] Collect All Logs + ZIP for Review                      │" -ForegroundColor White
-    Write-Host "  │   [9] Follow Live Logs                                       │" -ForegroundColor White
+    Write-Host "  │   [9] Collect All Logs + ZIP for Review                      │" -ForegroundColor White
+    Write-Host "  │  [10] Follow Live Logs                                       │" -ForegroundColor White
     Write-Host "  ├─────────────────────────────────────────────────────────────┤" -ForegroundColor DarkGray
     Write-Host "  │  OTHER                                                       │" -ForegroundColor DarkGray
-    Write-Host "  │  [10] Open Dashboard in Browser                              │" -ForegroundColor White
-    Write-Host "  │  [11] Cleanup (Remove All)                                   │" -ForegroundColor White
+    Write-Host "  │  [11] Open Dashboard in Browser                              │" -ForegroundColor White
+    Write-Host "  │  [12] Cleanup (Remove All)                                   │" -ForegroundColor White
     Write-Host "  │   [0] Exit                                                   │" -ForegroundColor White
     Write-Host "  └─────────────────────────────────────────────────────────────┘" -ForegroundColor DarkGray
     Write-Host ""
@@ -497,15 +602,16 @@ while ($true) {
         "2"  { Start-App }
         "3"  { Stop-App }
         "4"  { Restart-App }
-        "5"  { Pull-AndRebuild }
-        "6"  { Patch-App }
-        "7"  { Fix-App }
-        "8"  { Collect-Logs }
-        "9"  { Show-Logs-Live }
-        "10" { Open-Browser }
-        "11" { Cleanup-App }
+        "5"  { Update-App }
+        "6"  { Pull-AndRebuild }
+        "7"  { Patch-App }
+        "8"  { Fix-App }
+        "9"  { Collect-Logs }
+        "10" { Show-Logs-Live }
+        "11" { Open-Browser }
+        "12" { Cleanup-App }
         "0"  { Write-Info "Goodbye!"; exit 0 }
-        default { Write-Warn "Invalid choice. Please enter 0-11." }
+        default { Write-Warn "Invalid choice. Please enter 0-12." }
     }
     Write-Host ""
     Read-Host "  Press Enter to return to menu"

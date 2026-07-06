@@ -2,14 +2,15 @@
 # ──────────────────────────────────────────────────────────────────────────────
 # 7-Agent Price Intelligence Dashboard — Interactive Management Script (Linux/macOS)
 # Author: Lalit Nayyar <lalitnayyar@gmail.com> | +971508320336 | +919595353336
-# Version: 1.0.0
+# Version: 2.0.0
 # Usage: chmod +x manage.sh && ./manage.sh
+#        ./manage.sh update   ← recommended: pull + rmi + rebuild + restart
 # ──────────────────────────────────────────────────────────────────────────────
 
 set -euo pipefail
 
 # ── Configuration ─────────────────────────────────────────────────────────────
-SCRIPT_VERSION="1.0.0"
+SCRIPT_VERSION="2.0.0"
 APP_NAME="agent-dashboard"
 REPO_URL="https://github.com/lalitnayyar/sevenagentproject.git"
 CONTAINER_NAME="agent-dashboard"
@@ -120,6 +121,49 @@ get_container_status() {
     docker inspect --format='{{.State.Status}}' "$CONTAINER_NAME" 2>/dev/null || echo "not_found"
 }
 
+# Kill whatever process (Docker or otherwise) is holding a given port
+kill_port() {
+    local port="${1:-$DEFAULT_PORT}"
+    log_step "Checking if port ${port} is in use..."
+
+    # 1. Kill any Docker container that has mapped this host port
+    local containers_on_port
+    containers_on_port=$(docker ps --format '{{.Names}}' | while read -r name; do
+        docker port "$name" 2>/dev/null | grep -q "0\.0\.0\.0:${port}->" && echo "$name"
+    done)
+    if [[ -n "$containers_on_port" ]]; then
+        log_warn "Docker container(s) using port ${port}: $containers_on_port"
+        for c in $containers_on_port; do
+            log_step "Stopping container: $c"
+            docker stop "$c" 2>/dev/null || true
+            docker rm   "$c" 2>/dev/null || true
+        done
+        log_success "Conflicting container(s) stopped"
+        return 0
+    fi
+
+    # 2. Kill any OS-level process holding the port (Linux: ss/fuser, macOS: lsof)
+    local pid=""
+    if command -v ss &>/dev/null; then
+        pid=$(ss -tlnp 2>/dev/null | awk -v p=":${port}" '$4 ~ p {match($6,/pid=([0-9]+)/,a); if(a[1]) print a[1]}')
+    fi
+    if [[ -z "$pid" ]] && command -v lsof &>/dev/null; then
+        pid=$(lsof -ti tcp:"${port}" 2>/dev/null | head -1)
+    fi
+    if [[ -z "$pid" ]] && command -v fuser &>/dev/null; then
+        pid=$(fuser "${port}/tcp" 2>/dev/null | awk '{print $1}')
+    fi
+
+    if [[ -n "$pid" ]]; then
+        log_warn "Port ${port} held by PID ${pid} — killing..."
+        kill -9 "$pid" 2>/dev/null || true
+        sleep 1
+        log_success "PID ${pid} killed — port ${port} is now free"
+    else
+        log_success "Port ${port} is free"
+    fi
+}
+
 show_status() {
     log_info "Container Status:"
     local status
@@ -175,6 +219,7 @@ deploy_app() {
     docker stop "$CONTAINER_NAME" 2>/dev/null || true
     docker rm "$CONTAINER_NAME" 2>/dev/null || true
 
+    kill_port "${DEFAULT_PORT}"
     log_step "Starting container..."
     local env_arg=""
     [[ -f "$env_file" ]] && env_arg="--env-file $env_file"
@@ -274,23 +319,85 @@ pull_and_rebuild() {
             git pull origin main
             log_success "Code updated"
 
-            log_step "Rebuilding Docker image..."
+            log_step "Stopping and removing old container..."
+            docker stop "$CONTAINER_NAME" 2>/dev/null || true
+            docker rm   "$CONTAINER_NAME" 2>/dev/null || true
+
+            log_step "Removing old Docker image (ensures clean rebuild — no stale layers)..."
+            docker rmi "${IMAGE_NAME}:latest" 2>/dev/null || true
+
+            log_step "Rebuilding Docker image (this may take 2-5 minutes)..."
             docker build -t "${IMAGE_NAME}:latest" "$PROJECT_ROOT"
 
-            log_step "Restarting container..."
-            docker stop "$CONTAINER_NAME" 2>/dev/null || true
-            docker rm "$CONTAINER_NAME" 2>/dev/null || true
+            kill_port "${DEFAULT_PORT}"
+            log_step "Starting updated container..."
             local env_file="$PROJECT_ROOT/.env"
             local env_arg=""
             [[ -f "$env_file" ]] && env_arg="--env-file $env_file"
             # shellcheck disable=SC2086
             docker run -d --name "$CONTAINER_NAME" --restart unless-stopped \
                 -p "${DEFAULT_PORT}:3000" $env_arg "${IMAGE_NAME}:latest"
-            log_success "Rebuild complete! Dashboard: http://localhost:${DEFAULT_PORT}"
+            log_success "Update complete! Dashboard: http://localhost:${DEFAULT_PORT}"
         fi
     else
-        log_success "Already up to date (HEAD matches origin/main)"
+        log_info "Already up to date — forcing clean rebuild anyway..."
+        read -rp "  Force rebuild even though code is current? (y/N): " choice
+        if [[ "$choice" =~ ^[Yy]$ ]]; then
+            docker stop "$CONTAINER_NAME" 2>/dev/null || true
+            docker rm   "$CONTAINER_NAME" 2>/dev/null || true
+            docker rmi "${IMAGE_NAME}:latest" 2>/dev/null || true
+            docker build -t "${IMAGE_NAME}:latest" "$PROJECT_ROOT"
+            local env_file="$PROJECT_ROOT/.env"
+            local env_arg=""
+            [[ -f "$env_file" ]] && env_arg="--env-file $env_file"
+            kill_port "${DEFAULT_PORT}"
+            # shellcheck disable=SC2086
+            docker run -d --name "$CONTAINER_NAME" --restart unless-stopped \
+                -p "${DEFAULT_PORT}:3000" $env_arg "${IMAGE_NAME}:latest"
+            log_success "Rebuild complete! Dashboard: http://localhost:${DEFAULT_PORT}"
+        else
+            log_success "Nothing to do."
+        fi
     fi
+}
+
+update_app() {
+    show_header
+    echo -e "  ${WHITE}UPDATE — Full Update: Pull + Remove Old Image + Rebuild + Restart${NC}"
+    echo -e "  ${GRAY}  This is the recommended way to apply all code and Docker changes.${NC}"
+    echo ""
+    check_docker || return
+    check_git || return
+
+    cd "$PROJECT_ROOT"
+
+    log_step "Pulling latest code from GitHub..."
+    git pull origin main 2>&1 || { log_err "git pull failed. Check network/credentials."; return; }
+    log_success "Code up to date — $(git log -1 --format='%h %s')"
+
+    log_step "Stopping and removing old container..."
+    docker stop "$CONTAINER_NAME" 2>/dev/null || true
+    docker rm   "$CONTAINER_NAME" 2>/dev/null || true
+
+    log_step "Removing old Docker image (prevents stale layer cache)..."
+    docker rmi "${IMAGE_NAME}:latest" 2>/dev/null || true
+
+    log_step "Rebuilding Docker image from scratch (2-5 minutes)..."
+    docker build -t "${IMAGE_NAME}:latest" "$PROJECT_ROOT"
+    log_success "Image rebuilt successfully"
+
+    kill_port "${DEFAULT_PORT}"
+    log_step "Starting updated container on port ${DEFAULT_PORT}..."
+    local env_file="$PROJECT_ROOT/.env"
+    local env_arg=""
+    [[ -f "$env_file" ]] && env_arg="--env-file $env_file"
+    # shellcheck disable=SC2086
+    docker run -d --name "$CONTAINER_NAME" --restart unless-stopped \
+        -p "${DEFAULT_PORT}:3000" $env_arg "${IMAGE_NAME}:latest"
+
+    log_success "Update complete!"
+    log_info  "Dashboard: http://localhost:${DEFAULT_PORT}"
+    log_info  "Logs:      docker logs ${CONTAINER_NAME} --tail 20"
 }
 
 patch_app() {
@@ -310,6 +417,7 @@ patch_app() {
     local env_file="$PROJECT_ROOT/.env"
     local env_arg=""
     [[ -f "$env_file" ]] && env_arg="--env-file $env_file"
+    kill_port "${DEFAULT_PORT}"
     # shellcheck disable=SC2086
     docker run -d --name "$CONTAINER_NAME" --restart unless-stopped \
         -p "${DEFAULT_PORT}:3000" $env_arg "${IMAGE_NAME}:latest"
@@ -375,6 +483,7 @@ fix_app() {
             fi
             docker stop "$CONTAINER_NAME" 2>/dev/null || true
             docker rm "$CONTAINER_NAME" 2>/dev/null || true
+            kill_port "${DEFAULT_PORT}"
             local env_arg=""
             [[ -f "$env_file" ]] && env_arg="--env-file $env_file"
             # shellcheck disable=SC2086
@@ -597,6 +706,7 @@ apply_docker_patch() {
     log_step "Restarting container..."
     docker stop "$CONTAINER_NAME" 2>/dev/null || true
     docker rm "$CONTAINER_NAME" 2>/dev/null || true
+    kill_port "${DEFAULT_PORT}"
     local env_arg=""
     [[ -f "$PROJECT_ROOT/.env" ]] && env_arg="--env-file $PROJECT_ROOT/.env"
     # shellcheck disable=SC2086
@@ -618,18 +728,19 @@ show_menu() {
     echo -e "  ${GRAY}│   ${WHITE}[4] Restart${GRAY}                                                │${NC}"
     echo -e "  ${GRAY}├─────────────────────────────────────────────────────────────┤${NC}"
     echo -e "  ${GRAY}│  ${WHITE}UPDATES & FIXES${GRAY}                                             │${NC}"
-    echo -e "  ${GRAY}│   ${WHITE}[5] Pull Latest Code & Rebuild${GRAY}                             │${NC}"
-    echo -e "  ${GRAY}│   ${WHITE}[6] Patch (Hot Patch — rebuild only)${GRAY}                       │${NC}"
-    echo -e "  ${GRAY}│   ${WHITE}[7] Fix (Diagnostics + Auto-Fix)${GRAY}                           │${NC}"
+    echo -e "  ${GRAY}│   ${GREEN}[5] UPDATE  ← Recommended: pull + rmi + rebuild + restart${GRAY}  │${NC}"
+    echo -e "  ${GRAY}│   ${WHITE}[6] Pull & Rebuild (interactive, shows commit count)${GRAY}       │${NC}"
+    echo -e "  ${GRAY}│   ${WHITE}[7] Patch (Hot Patch — rebuild only, no pull)${GRAY}               │${NC}"
+    echo -e "  ${GRAY}│   ${WHITE}[8] Fix (Diagnostics + Auto-Fix)${GRAY}                           │${NC}"
     echo -e "  ${GRAY}├─────────────────────────────────────────────────────────────┤${NC}"
     echo -e "  ${GRAY}│  ${WHITE}LOGS & MONITORING${GRAY}                                           │${NC}"
-    echo -e "  ${GRAY}│   ${WHITE}[8] Collect All Logs + ZIP for Review${GRAY}                      │${NC}"
-    echo -e "  ${GRAY}│   ${WHITE}[9] Follow Live Logs${GRAY}                                       │${NC}"
+    echo -e "  ${GRAY}│   ${WHITE}[9] Collect All Logs + ZIP for Review${GRAY}                      │${NC}"
+    echo -e "  ${GRAY}│  ${WHITE}[10] Follow Live Logs${GRAY}                                       │${NC}"
     echo -e "  ${GRAY}├─────────────────────────────────────────────────────────────┤${NC}"
     echo -e "  ${GRAY}│  ${WHITE}OTHER${GRAY}                                                       │${NC}"
-    echo -e "  ${GRAY}│  ${WHITE}[10] Open Dashboard in Browser${GRAY}                              │${NC}"
-    echo -e "  ${GRAY}│  ${WHITE}[11] Cleanup (Remove All)${GRAY}                                   │${NC}"
-    echo -e "  ${GRAY}│  ${WHITE}[12] Apply Docker Patch (git pull + patch + rebuild)${GRAY}        │${NC}"
+    echo -e "  ${GRAY}│  ${WHITE}[11] Open Dashboard in Browser${GRAY}                              │${NC}"
+    echo -e "  ${GRAY}│  ${WHITE}[12] Cleanup (Remove All)${GRAY}                                   │${NC}"
+    echo -e "  ${GRAY}│  ${WHITE}[13] Apply Docker Patch (git pull + patch + rebuild)${GRAY}        │${NC}"
     echo -e "  ${GRAY}│   ${WHITE}[0] Exit${GRAY}                                                   │${NC}"
     echo -e "  ${GRAY}└─────────────────────────────────────────────────────────────┘${NC}"
     echo ""
@@ -643,6 +754,7 @@ if [[ $# -gt 0 ]]; then
         start)    start_app ;;
         stop)     stop_app ;;
         restart)  restart_app ;;
+        update)   update_app ;;
         pull)     pull_and_rebuild ;;
         patch)    patch_app ;;
         fix)      fix_app ;;
@@ -651,7 +763,11 @@ if [[ $# -gt 0 ]]; then
         cleanup)  cleanup_app ;;
         apatch)   apply_docker_patch ;;
         status)   show_status ;;
-        *)        echo "Usage: $0 [deploy|start|stop|restart|pull|patch|fix|logs|live|cleanup|apatch|status]" ;;
+        *)        echo "Usage: $0 [deploy|start|stop|restart|update|pull|patch|fix|logs|live|cleanup|apatch|status]"
+                  echo ""
+                  echo "  update  ← RECOMMENDED for applying new releases"
+                  echo "           Runs: git pull + docker stop + docker rmi + docker build + docker run"
+                  ;;
     esac
     exit 0
 fi
@@ -667,16 +783,17 @@ while true; do
         2)  start_app ;;
         3)  stop_app ;;
         4)  restart_app ;;
-        5)  pull_and_rebuild ;;
-        6)  patch_app ;;
-        7)  fix_app ;;
-        8)  collect_logs ;;
-        9)  live_logs ;;
-        10) open_browser ;;
-        11) cleanup_app ;;
-        12) apply_docker_patch ;;
+        5)  update_app ;;
+        6)  pull_and_rebuild ;;
+        7)  patch_app ;;
+        8)  fix_app ;;
+        9)  collect_logs ;;
+        10) live_logs ;;
+        11) open_browser ;;
+        12) cleanup_app ;;
+        13) apply_docker_patch ;;
         0)  log_info "Goodbye!"; exit 0 ;;
-        *)  log_warn "Invalid choice. Please enter 0-11." ;;
+        *)  log_warn "Invalid choice. Please enter 0-13." ;;
     esac
     echo ""
     read -rp "  Press Enter to return to menu..."
