@@ -77,6 +77,19 @@ export default function Screen3ScannerMessenger() {
       return;
     }
 
+    // Read Pushover credentials from settings (Command Vault) as client-side fallback
+    // Server will prefer env vars (PUSHOVER_USER/TOKEN) if set; these are used when env vars are empty
+    const pushoverUserKey = settings.pushoverUser?.trim() || "";
+    const pushoverToken   = settings.pushoverToken?.trim() || "";
+
+    if (!pushoverUserKey && !pushoverToken) {
+      // Check env vars are also empty — warn user
+      toast.warning("Pushover credentials not found", {
+        description: "Go to Command Vault → Pushover tab and save your User Key and App Token first.",
+        duration: 6000,
+      });
+    }
+
     setAutoNotifying(true);
     setNotifiedCount(0);
     let sent = 0;
@@ -91,6 +104,9 @@ export default function Screen3ScannerMessenger() {
           message: msg.slice(0, 512),
           sound: "cashregister",
           url: deal.url,
+          // Pass settings credentials as fallback — server uses env vars first, then these
+          userKey: pushoverUserKey || undefined,
+          token:   pushoverToken   || undefined,
         });
         if (result.success) {
           sent++;
@@ -108,7 +124,7 @@ export default function Screen3ScannerMessenger() {
       }
     }
     setAutoNotifying(false);
-  }, []);
+  }, [settings]); // re-create when settings change so credentials are always fresh
 
   const handleScan = async () => {
     setScanning(true);
