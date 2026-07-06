@@ -1,6 +1,12 @@
 # 7-Agent Price Intelligence Dashboard
 
-**A comprehensive React-based control centre for monitoring, running, and visualising seven AI pricing agents — from fine-tuned LLaMA models on Modal.com to RAG-enhanced frontier LLMs, autonomous planners, and real-time deal scanners.**
+> **A production-ready React dashboard for orchestrating, monitoring, and interacting with 7 AI agents that scan, evaluate, and notify you about the best deals on Amazon — powered by LLaMA 3.2, GPT-4o, Claude Sonnet, ChromaDB, and Modal.com GPU inference.**
+
+[![React](https://img.shields.io/badge/React-19-blue?logo=react)](https://react.dev)
+[![TypeScript](https://img.shields.io/badge/TypeScript-5.6-blue?logo=typescript)](https://typescriptlang.org)
+[![Tailwind CSS](https://img.shields.io/badge/Tailwind-4-blue?logo=tailwindcss)](https://tailwindcss.com)
+[![Docker](https://img.shields.io/badge/Docker-ready-blue?logo=docker)](https://docker.com)
+[![License](https://img.shields.io/badge/License-MIT-blue)](LICENSE)
 
 ---
 
@@ -8,150 +14,258 @@
 
 1. [Overview](#overview)
 2. [Architecture](#architecture)
-3. [Screen-by-Screen Feature Guide](#screen-by-screen-feature-guide)
-4. [Agent Reference](#agent-reference)
-5. [Technology Stack](#technology-stack)
+3. [The 7 Agents](#the-7-agents)
+4. [Module Screenshots](#module-screenshots)
+5. [API Keys & Credentials](#api-keys--credentials)
 6. [Quick Start](#quick-start)
 7. [Docker Deployment](#docker-deployment)
 8. [Interactive Management Scripts](#interactive-management-scripts)
-9. [API Keys & Configuration](#api-keys--configuration)
-10. [Dashboard Visualisations](#dashboard-visualisations)
-11. [Test Scripts](#test-scripts)
-12. [Troubleshooting & Diagnostics](#troubleshooting--diagnostics)
-13. [Project Structure](#project-structure)
-14. [Disclaimer](#disclaimer)
+9. [Log Collection & Diagnostics](#log-collection--diagnostics)
+10. [Project Structure](#project-structure)
+11. [User Guide](#user-guide)
+12. [Development](#development)
 
 ---
 
 ## Overview
 
-The 7-Agent Price Intelligence Dashboard is a production-ready React 19 + Tailwind CSS 4 single-page application that provides a unified control plane for an ensemble of AI pricing agents originally developed in Jupyter notebooks across five days of experimentation. The application translates every notebook cell, processing step, and agent interaction into an interactive, real-time web interface — making the entire pipeline accessible without touching Python or a terminal.
+The **7-Agent Price Intelligence Dashboard** is a full-featured React web application that provides a unified control plane for a multi-agent AI system originally built across 5 Jupyter notebook days. Each agent has a dedicated module screen with live activity logs, configuration controls, and notebook-derived processing messages that show exactly what each agent is doing step by step.
 
-The system covers the full lifecycle of AI-driven price estimation: from deploying a fine-tuned LLaMA model on Modal.com's serverless GPU infrastructure, through RAG-augmented frontier model queries, neural network ensemble weighting, autonomous deal scanning with push notifications, to a final "Price Is Right" game-show-style reveal of the best estimate.
+**Key capabilities:**
 
 | Capability | Detail |
 |---|---|
-| **Screens** | 8 (5 agent screens + Dashboard + Test Runner + Settings) |
-| **Agents** | 7 (Specialist, Frontier, Ensemble, Scanner, Messenger, Planner, Framework) |
-| **Charts** | 5 (Price Accuracy, Agent Distribution, Deal Discounts, Ensemble Comparison, Activity Timeline) |
-| **Theme** | Blue shades, light background, professional data-engineering aesthetic |
-| **Deployment** | Docker (multi-stage), docker-compose, PowerShell + Bash management scripts |
+| **8 dedicated screens** | One per agent group + dashboard + test lab + settings |
+| **Live agent simulation** | Notebook-derived processing messages stream in real time |
+| **Interactive API verification** | Test buttons make real HTTP calls to OpenAI, Anthropic, DeepSeek, HuggingFace, Pushover |
+| **Recharts visualizations** | 5 charts: price accuracy, agent distribution, deal discounts, model error comparison, capability radar |
+| **Docker-ready** | Multi-stage Dockerfile, docker-compose with 5 profiles, nginx reverse proxy |
+| **One-command deployment** | Interactive PowerShell + Bash scripts with 11 menu options |
+| **Log collection** | Full app + Docker logs zipped into timestamped archives |
+| **GitHub Actions ready** | `.env.template` and `.gitignore` pre-configured |
 
 ---
 
 ## Architecture
 
-The application follows a clean three-layer architecture:
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    7-Agent Price Intelligence System                         │
+│                                                                               │
+│  ┌──────────────────────────────────────────────────────────────────────┐   │
+│  │                    React Dashboard (Port 3000)                        │   │
+│  │  Mission Control │ GPU Inference │ Knowledge Retrieval │ Deal Radar  │   │
+│  │  Autonomous Ops  │ Grand Finale  │ Lab & Diagnostics   │ Command Vault│  │
+│  └──────────────────────────────────────────────────────────────────────┘   │
+│           │                │               │                │                │
+│           ▼                ▼               ▼                ▼                │
+│  ┌─────────────┐  ┌──────────────┐  ┌──────────┐  ┌──────────────────┐    │
+│  │ Modal.com   │  │  ChromaDB    │  │ OpenAI   │  │    Pushover      │    │
+│  │ T4 GPU      │  │  Vector DB   │  │ Anthropic│  │  Push Alerts     │    │
+│  │ LLaMA 3.2   │  │  400K items  │  │ DeepSeek │  │  MessengerAgent  │    │
+│  └─────────────┘  └──────────────┘  └──────────┘  └──────────────────┘    │
+│           │                │               │                                 │
+│           ▼                ▼               ▼                                 │
+│  ┌─────────────────────────────────────────────────────────────────────┐    │
+│  │                    Python Agent Layer                                │    │
+│  │                                                                       │    │
+│  │  SpecialistAgent → FrontierAgent → EnsembleAgent → ScannerAgent     │    │
+│  │       ↓                                                  ↓           │    │
+│  │  AutonomousPlannerAgent ← DealAgentFramework ← MessengerAgent       │    │
+│  │                              ↓                                       │    │
+│  │                    price_is_right.py (Orchestrator)                  │    │
+│  └─────────────────────────────────────────────────────────────────────┘    │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
 
-**Presentation Layer** — React 19 pages and components, Tailwind CSS 4 design tokens, shadcn/ui component library, Recharts for data visualisation, Framer Motion for animations, and Wouter for client-side routing.
-
-**State Layer** — A single `AgentContext` (React Context + `useReducer`) acts as the central store. It holds all seven agent states, their activity logs (derived from actual notebook processing steps), deal records, price estimations, and user settings. Settings are persisted to `localStorage` so API keys survive page reloads.
-
-**Simulation Layer** — Because the dashboard is a pure frontend application, agent "runs" are simulated using timed sequences of log messages extracted directly from the original Jupyter notebooks. Each message reflects a real processing step — model loading, ChromaDB querying, RSS feed scanning, push notification dispatch — giving an authentic representation of what the Python agents actually do.
+### Agent Data Flow
 
 ```
-client/src/
-├── contexts/AgentContext.tsx   ← Central state store (all 7 agents)
-├── components/
-│   ├── AppLayout.tsx           ← Sidebar + top bar shell
-│   └── AgentCard.tsx           ← Shared AgentControlCard + LogTerminal
-├── pages/
-│   ├── DashboardPage.tsx       ← Screen 6: Overview + 5 Recharts graphs
-│   ├── Screen1ModalSpecialist.tsx
-│   ├── Screen2RAGFrontierEnsemble.tsx
-│   ├── Screen3ScannerMessenger.tsx
-│   ├── Screen4PlannerFramework.tsx
-│   ├── Screen5PriceIsRight.tsx
-│   ├── Screen7TestScripts.tsx
-│   └── Screen8Settings.tsx
-└── index.css                   ← Blue-shades design tokens + custom classes
+Amazon RSS Feeds
+      │
+      ▼
+ScannerAgent ──── scans deals, summarizes with GPT-4o-mini
+      │
+      ▼
+DealAgentFramework ─── orchestrates pricing for each deal
+      │
+      ├──► SpecialistAgent  ── LLaMA 3.2-3B on Modal GPU (fine-tuned)
+      ├──► FrontierAgent    ── GPT-4o-mini + ChromaDB RAG
+      └──► EnsembleAgent    ── weighted average of all estimates
+                │
+                ▼
+      AutonomousPlannerAgent ── ReAct loop, tool-calling GPT-4o
+                │
+                ▼
+      MessengerAgent ── Claude crafts message → Pushover notification
+                │
+                ▼
+         Your Phone 📱
 ```
 
 ---
 
-## Screen-by-Screen Feature Guide
+## The 7 Agents
 
-### Screen 1 — Modal.com & Specialist Agent
-
-This screen covers the infrastructure layer of the pricing pipeline. The left panel explains Modal.com's serverless GPU platform and shows the deployment configuration for the fine-tuned LLaMA 3.2-3B model (the `pricer-service`). Key parameters — GPU type (T4), quantisation (4-bit NF4), container timeout, and the Modal token — are displayed alongside a live status indicator.
-
-The right panel controls the **Specialist Agent** itself. Users can enter a product description, click **Run Specialist**, and watch the log terminal replay the actual notebook processing steps: tokenising the prompt, calling the Modal endpoint, receiving the logit-based price estimate, and formatting the result. The agent's metrics (total runs, success rate, average response time) update in real time.
-
-### Screen 2 — RAG, Frontier Agent & Ensemble Agent
-
-This screen presents three tightly coupled agents that together form the core ensemble. The **RAG panel** shows the ChromaDB vector store configuration — the embedding model (`all-MiniLM-L6-v2`), the collection name, and the number of similar items retrieved per query. A visual representation of the retrieval pipeline (query → embed → search → context) is rendered as an animated flow diagram.
-
-The **Frontier Agent** panel allows selection between GPT-4o-mini and DeepSeek-V3 as the underlying model. It shows the RAG-augmented prompt construction and the model's price estimate alongside confidence indicators.
-
-The **Ensemble Agent** panel displays the weighted combination formula: `0.4 × Specialist + 0.35 × Frontier + 0.25 × Neural`. Users can adjust weights interactively and see how the final estimate changes. All three agents share a unified log terminal that streams their interleaved activity.
-
-### Screen 3 — Scanner Agent & Messenger Agent
-
-The **Scanner Agent** monitors RSS feeds from deal aggregator sites (Slickdeals, DealNews, TechBargains) and applies the pricing pipeline to each product found. This screen shows the feed configuration, the scanning interval, and a live deal table with product name, listed price, AI-estimated value, and computed discount.
-
-The **Messenger Agent** (powered by Claude Sonnet) monitors the deal stream and dispatches Pushover push notifications when a deal exceeds the configured discount threshold (default $50). The screen shows the Pushover credentials panel, the notification template, and a log of all notifications sent in the current session.
-
-### Screen 4 — Autonomous Planner Agent & Deal Agent Framework
-
-The **Autonomous Planner Agent** uses GPT-4o as its reasoning backbone and implements a ReAct (Reason + Act) loop. This screen visualises the planning cycle: the agent receives a high-level objective (e.g., "find the best laptop deal under $800"), decomposes it into sub-tasks, calls the appropriate specialist tools, evaluates results, and iterates. The tool call log shows each function invocation with its arguments and return value.
-
-The **Deal Agent Framework** panel explains the orchestration architecture: how the Planner delegates to the Scanner, Frontier, and Specialist agents; how results are aggregated; and how the final recommendation is produced. A dependency graph shows the agent call chain.
-
-### Screen 5 — The Price Is Right Finale
-
-This is the culmination screen — a game-show-inspired reveal of the ensemble's final price estimate. Users enter a product description and click **Estimate Price**. The screen animates through each agent's individual estimate (Specialist → Frontier → Neural → Ensemble) with a dramatic countdown, then reveals the final weighted estimate alongside the actual price (if provided) and the percentage error.
-
-A leaderboard table shows historical estimates ranked by accuracy, and a scatter plot compares predicted vs actual prices across all past runs.
-
-### Screen 6 — Dashboard
-
-The dashboard provides a real-time overview of all seven agents simultaneously. Four KPI cards at the top show total agent runs, average success rate, deals found, and total savings discovered. Below, a grid of agent cards shows each agent's current status, key metrics, and a link to its dedicated screen.
-
-Five Recharts visualisations occupy the lower half of the page:
-
-- **Price Prediction Accuracy vs Actual** — grouped bar chart comparing each model's estimate against the actual price for the last five products
-- **Agent Run Distribution** — pie/donut chart showing the proportion of total runs contributed by each agent
-- **Deal Discount Distribution** — bar chart showing the frequency of deals by discount range ($0–25, $25–50, $50–100, $100+)
-- **Ensemble Model Comparison** — radar chart comparing Specialist, Frontier, and Neural agents across accuracy, speed, cost, and reliability axes
-- **Agent Activity Timeline** — area chart showing runs per hour over the last 24 hours, with each agent as a separate series
-
-### Screen 7 — Test Scripts
-
-This screen provides an in-browser test runner for the Python test scripts extracted from the original Jupyter notebooks. Each test is displayed as a card with its source file, description, and expected output. Users can click **Run** to simulate execution and see the output in a terminal-style panel. Tests are grouped by day (Day 1–5) and by agent.
-
-### Screen 8 — Settings
-
-A comprehensive settings panel organised into six sections: **LLM API Keys** (OpenAI, Anthropic, DeepSeek), **Modal.com** (token ID and secret), **HuggingFace** (token and username), **Pushover** (user key and app token), **Local Services** (ChromaDB path, Ollama URL, preprocessor model), and **Agent Parameters** (deal threshold, max datapoints, fine-tuned model revision). All sensitive fields use password-type inputs with a show/hide toggle. Settings are saved to `localStorage` and can be exported as a `.env` file.
+| # | Agent | Module | Model | Role |
+|---|---|---|---|---|
+| 1 | **SpecialistAgent** | GPU Inference Engine | LLaMA 3.2-3B (fine-tuned, Modal GPU) | Estimates product prices using a fine-tuned LLM on T4 GPU via Modal.com |
+| 2 | **FrontierAgent** | Knowledge Retrieval Hub | GPT-4o-mini + ChromaDB RAG | Uses vector similarity search over 400K products to price items |
+| 3 | **EnsembleAgent** | Knowledge Retrieval Hub | Weighted average | Combines SpecialistAgent + FrontierAgent estimates with configurable weights |
+| 4 | **ScannerAgent** | Deal Radar & Alerts | GPT-4o-mini | Scans Amazon RSS feeds, extracts deals, summarizes with LLM |
+| 5 | **MessengerAgent** | Deal Radar & Alerts | Claude Sonnet 4.5 | Crafts exciting push notification messages and sends via Pushover |
+| 6 | **AutonomousPlannerAgent** | Autonomous Operations | GPT-4o (tool calling) | ReAct loop planner that uses tools to investigate and evaluate deals |
+| 7 | **DealAgentFramework** | Autonomous Operations | Orchestrator | Coordinates all agents, manages the deal evaluation pipeline |
 
 ---
 
-## Agent Reference
+## Module Screenshots
 
-| Agent | Screen | Model | Purpose |
+### Mission Control — Dashboard
+
+> The central command center showing all 7 agents' live status, KPI metrics, and 5 Recharts visualizations including price accuracy, deal distribution, and model comparison.
+
+![Mission Control Dashboard](docs/screenshots/screen6_dashboard.png)
+
+**Features:**
+- 4 KPI cards: Total Deals Scanned, Notifications Sent, Avg Price Accuracy, Active Agents
+- Agent status grid with live activity indicators
+- **Price Estimation Accuracy** — bar chart comparing SpecialistAgent vs FrontierAgent vs EnsembleAgent
+- **Agent Activity Distribution** — pie chart of processing load per agent
+- **Deal Discount Distribution** — histogram of discount ranges ($10–$200+)
+- **Model Error Comparison** — horizontal bar chart (MAE by model)
+- **System Capability Radar** — radar chart of agent capabilities
+- 24-hour activity timeline with area chart
+- "Start All Agents" button with animated status
+
+---
+
+### GPU Inference Engine — SpecialistAgent + Modal.com
+
+> Deploy and run fine-tuned LLaMA 3.2-3B on Modal.com GPU infrastructure. Configure GPU type, monitor deployment status, and run live price estimations.
+
+![GPU Inference Engine](docs/screenshots/screen1_gpu_inference.png)
+
+**Features:**
+- Modal.com deployment status panel
+- GPU configuration (T4 / A10G / A100)
+- Live price estimation with product description input
+- Notebook-derived processing log terminal
+- Source code preview for `pricer_service2.py`
+- Quantization config display (BitsAndBytes 4-bit NF4)
+
+---
+
+### Knowledge Retrieval Hub — RAG + FrontierAgent + EnsembleAgent
+
+> Visualize the RAG pipeline, query the ChromaDB vector store, and configure ensemble weights for combining multiple agent estimates.
+
+![Knowledge Retrieval Hub](docs/screenshots/screen2_knowledge_retrieval.png)
+
+**Features:**
+- RAG pipeline flow diagram (Query → Embed → ChromaDB → Retrieve → Prompt → GPT-4o-mini)
+- ChromaDB vector store stats (400K+ products, SentenceTransformer embeddings)
+- FrontierAgent live query interface
+- EnsembleAgent weight sliders (Specialist / Frontier / balance)
+- Ensemble result comparison table
+
+---
+
+### Deal Radar & Alerts — ScannerAgent + MessengerAgent
+
+> Monitor Amazon RSS feed scanning, view discovered deals in a live table, and configure Pushover notification delivery.
+
+![Deal Radar & Alerts](docs/screenshots/screen3_deal_radar.png)
+
+**Features:**
+- RSS feed list with scan status indicators
+- Live deals table with product name, listed price, estimated price, discount, and alert status
+- MessengerAgent notification preview
+- Pushover delivery configuration
+- Claude message crafting log
+
+---
+
+### Autonomous Operations — AutonomousPlannerAgent + DealAgentFramework
+
+> Visualize the ReAct reasoning loop, monitor tool calls, and see the full deal evaluation orchestration graph.
+
+![Autonomous Operations](docs/screenshots/screen4_autonomous_ops.png)
+
+**Features:**
+- ReAct loop visualizer (Think → Act → Observe → Repeat)
+- Tool call log (get_price, search_web, compare_deals)
+- DealAgentFramework orchestration graph
+- Agent coordination timeline
+- Planning trace with GPT-4o tool-calling steps
+
+---
+
+### Grand Finale Arena — Price Is Right
+
+> The full end-to-end pipeline in action. See all agents collaborate to evaluate deals and produce a ranked leaderboard of the best finds.
+
+![Grand Finale Arena](docs/screenshots/screen5_grand_finale.png)
+
+**Features:**
+- Full pipeline execution panel
+- Deal leaderboard with rankings, discounts, and confidence scores
+- Scatter chart: Listed Price vs Estimated Price
+- Agent contribution breakdown per deal
+- Export results button
+
+---
+
+### Lab & Diagnostics — Test Scripts
+
+> Run all 13 test scripts extracted from the original day1–day5 Jupyter notebooks directly from the browser.
+
+![Lab & Diagnostics](docs/screenshots/screen7_test_lab.png)
+
+**Features:**
+- 13 test scripts grouped by notebook day (Day 1–5)
+- Each test shows expected output and description
+- Run individual tests or all tests in sequence
+- Live output terminal with pass/fail indicators
+- Copy script button for running in Python locally
+
+---
+
+### Command Vault — Settings & Configuration
+
+> Central configuration hub for all API keys and parameters. Every key has a **live Test button** that makes a real API call and shows the response.
+
+![Command Vault Settings](docs/screenshots/screen8_command_vault.png)
+
+**Features:**
+- 6 configuration tabs: LLM APIs, Modal.com, HuggingFace, Pushover, Vector DB, Model Config
+- **Live API verification** for every key (see table below)
+- Show/hide password toggle on all secret fields
+- Export `.env` file button
+- Save to localStorage with discard option
+
+---
+
+## API Keys & Credentials
+
+All keys are configured in the **Command Vault** (Settings screen). Each has a dedicated **Test button** that makes a real verification request.
+
+| Key | Where to Get | Used By | Test Button Behaviour |
 |---|---|---|---|
-| **Specialist Agent** | 1 | Fine-tuned LLaMA 3.2-3B (Modal.com T4 GPU) | Token-level price regression from product description |
-| **Frontier Agent** | 2 | GPT-4o-mini / DeepSeek-V3 + ChromaDB RAG | LLM price estimation with similar-item context |
-| **Ensemble Agent** | 2 | Weighted combination (0.4/0.35/0.25) | Combines Specialist + Frontier + Neural for best accuracy |
-| **Scanner Agent** | 3 | GPT-4o-mini (deal evaluation) | RSS feed scraper + pricing pipeline for deal discovery |
-| **Messenger Agent** | 3 | Claude Sonnet (notification drafting) | Push notification dispatch via Pushover when deal > threshold |
-| **Autonomous Planner** | 4 | GPT-4o (ReAct loop) | High-level goal decomposition and agent orchestration |
-| **Deal Agent Framework** | 4 | Orchestration layer | Coordinates all agents into a unified deal-finding pipeline |
+| `OPENAI_API_KEY` | [platform.openai.com/api-keys](https://platform.openai.com/api-keys) | FrontierAgent (gpt-4o-mini), AutonomousPlannerAgent (gpt-4o), ScannerAgent (gpt-4o-mini) | Calls `GET /v1/models` — shows available model list + latency |
+| `ANTHROPIC_API_KEY` | [console.anthropic.com/settings/keys](https://console.anthropic.com/settings/keys) | MessengerAgent (claude-sonnet-4-5) | Sends a 5-token message to claude-haiku-4-5 — shows response text + latency |
+| `DEEPSEEK_API_KEY` | [platform.deepseek.com](https://platform.deepseek.com) | FrontierAgent (optional alternative) | Calls `GET /models` — shows available DeepSeek models + latency |
+| `MODAL_TOKEN_ID` + `MODAL_TOKEN_SECRET` | [modal.com → Settings → Tokens](https://modal.com/settings/tokens) | SpecialistAgent (LLaMA on GPU) | Validates format (ak-... / as-...) — full CLI validation: `modal token set ...` |
+| `HF_TOKEN` | [huggingface.co/settings/tokens](https://huggingface.co/settings/tokens) | SpecialistAgent (model loading), RAG (SentenceTransformer) | Calls `GET /api/whoami-v2` — shows your HF username + account type |
+| `PUSHOVER_USER` + `PUSHOVER_TOKEN` | [pushover.net](https://pushover.net) | MessengerAgent (push notifications) | Validates credentials AND sends a real test notification to your phone |
 
----
+### Setting Up Keys
 
-## Technology Stack
-
-| Layer | Technology |
-|---|---|
-| **Frontend Framework** | React 19 + TypeScript 5.6 |
-| **Styling** | Tailwind CSS 4 + shadcn/ui |
-| **Charts** | Recharts 2.15 |
-| **Animation** | Framer Motion 12 |
-| **Routing** | Wouter 3.3 |
-| **Build Tool** | Vite 7 |
-| **Package Manager** | pnpm 10 |
-| **Container** | Docker (multi-stage: Node 22-alpine → Nginx 1.27-alpine) |
-| **Web Server** | Nginx with gzip, security headers, SPA routing |
+1. Open the app and navigate to **Command Vault** (gear icon in sidebar)
+2. Enter your keys in the appropriate tab
+3. Click **Verify [Key Name]** to test each key
+4. Click **Save Settings** to persist to localStorage
+5. Click **Export .env** to download a `.env` file for the Python agents
 
 ---
 
@@ -159,231 +273,197 @@ A comprehensive settings panel organised into six sections: **LLM API Keys** (Op
 
 ### Prerequisites
 
-- Node.js 22+ and pnpm 10+
-- Docker Desktop (for containerised deployment)
-- Git
+- Node.js 22+ and pnpm
+- Python 3.11+ (for running Python agents)
+- Docker + Docker Compose (for containerized deployment)
 
 ### Local Development
 
 ```bash
-# 1. Clone the repository
+# Clone the repository
 git clone https://github.com/lalitnayyar/sevenagentproject.git
 cd sevenagentproject
 
-# 2. Install dependencies
+# Install dependencies
 pnpm install
 
-# 3. Copy environment template
-cp .env.template .env
-# Edit .env and add your API keys
+# Start the development server
+pnpm dev
 
-# 4. Start development server (hot reload)
-pnpm run dev
-# → http://localhost:5173
+# Open http://localhost:3000
+```
+
+### Python Agents Setup
+
+```bash
+# Navigate to the Python agents directory
+cd python-agents
+
+# Install dependencies
+pip install -r requirements.txt
+# or with uv:
+uv sync
+
+# Copy and fill in your .env
+cp ../.env.template .env
+# Edit .env with your API keys
+
+# Run the main pipeline
+python price_is_right.py
 ```
 
 ---
 
 ## Docker Deployment
 
-### Single-Command Production Deploy
+### Build and Run (Production)
 
 ```bash
-# Build and start
-docker build -t agent-dashboard:latest .
-docker run -d --name agent-dashboard --restart unless-stopped \
-  -p 3000:80 --env-file .env agent-dashboard:latest
+# Build the production image
+docker build -t 7agent-dashboard:latest .
 
-# → http://localhost:3000
+# Run with docker-compose (production profile)
+docker-compose --profile prod up -d
+
+# Access at http://localhost:80
 ```
 
-### Docker Compose (Recommended)
+### Development with Hot Reload
 
 ```bash
-# Production (dashboard only)
-docker compose up -d
+# Run with development profile (hot reload, port 3000)
+docker-compose --profile dev up
 
-# Development (with HMR)
-docker compose --profile dev up
-
-# With Python agent backend
-docker compose --profile agents up -d
-
-# With log viewer (Dozzle at :9999)
-docker compose --profile monitoring up -d
+# Access at http://localhost:3000
 ```
 
-### Available Compose Profiles
+### Available Docker Compose Profiles
 
-| Profile | Services Started | Use Case |
-|---|---|---|
-| *(default)* | `dashboard` | Production frontend only |
-| `dev` | `dashboard-dev` | Development with hot reload |
-| `agents` | `dashboard` + `agent-backend` | Full stack with Python agents |
-| `proxy` | `dashboard` + `proxy` | Behind Nginx reverse proxy |
-| `monitoring` | `dashboard` + `log-viewer` | With Dozzle log UI |
+| Profile | Command | Port | Description |
+|---|---|---|---|
+| `prod` | `docker-compose --profile prod up -d` | 80 | Production nginx build |
+| `dev` | `docker-compose --profile dev up` | 3000 | Hot-reload development |
+| `staging` | `docker-compose --profile staging up -d` | 8080 | Staging environment |
+
+### Environment Variables for Docker
+
+```bash
+# Copy the template
+cp .env.template .env
+
+# Edit with your keys
+nano .env
+
+# Start with env file
+docker-compose --env-file .env --profile prod up -d
+```
 
 ---
 
 ## Interactive Management Scripts
 
-Two fully interactive management scripts are provided — one for Windows PowerShell and one for Linux/macOS Bash. Both offer identical functionality through a numbered menu.
+Two fully interactive management scripts are provided — one for **Windows PowerShell** and one for **Linux/macOS Bash**. Both have identical functionality.
 
 ### Linux / macOS
 
 ```bash
+# Make executable (first time only)
 chmod +x scripts/manage.sh
-./scripts/manage.sh
 
-# Or use direct commands (non-interactive):
-./scripts/manage.sh deploy    # Full build + start
-./scripts/manage.sh start     # Start existing container
-./scripts/manage.sh stop      # Stop container
-./scripts/manage.sh restart   # Restart container
-./scripts/manage.sh pull      # Pull latest code + rebuild
-./scripts/manage.sh patch     # Hot patch (rebuild only)
-./scripts/manage.sh fix       # Diagnostics + auto-fix
-./scripts/manage.sh logs      # Collect all logs + ZIP
-./scripts/manage.sh live      # Follow live logs
-./scripts/manage.sh cleanup   # Remove all containers/images
-./scripts/manage.sh status    # Show current status
+# Launch interactive menu
+./scripts/manage.sh
 ```
 
 ### Windows PowerShell
 
 ```powershell
-# Run as Administrator recommended
+# Allow script execution (first time only)
 Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
+
+# Launch interactive menu
 .\scripts\manage.ps1
 ```
 
-### Menu Options Reference
+### Menu Options
 
-| Option | Action | Description |
-|---|---|---|
-| **1** | Deploy | Full Docker build + container start. Copies `.env.template` if `.env` missing. |
-| **2** | Start | Start an existing stopped container, or `docker compose up -d`. |
-| **3** | Stop | Stop (and optionally remove) the running container. |
-| **4** | Restart | `docker restart` — fastest way to apply config changes. |
-| **5** | Pull & Rebuild | `git pull origin main` → rebuild image → restart container. |
-| **6** | Patch | Build a new image with a timestamped tag, then hot-swap the container. |
-| **7** | Fix | Runs diagnostics (container status, port, image, .env, disk) then auto-fixes. |
-| **8** | Collect Logs + ZIP | Gathers container logs, nginx logs, app logs, system info, env (redacted) → ZIP. |
-| **9** | Live Logs | `docker logs -f --tail 50` — streams live container output. |
-| **10** | Open Browser | Opens `http://localhost:3000` in the default browser. |
-| **11** | Cleanup | Removes container, image, volumes, and prunes Docker system. |
+Both scripts present an interactive numbered menu:
 
-### Log Collection ZIP Contents
+```
+╔══════════════════════════════════════════════════════╗
+║     7-Agent Price Intelligence Dashboard             ║
+║     Interactive Management Console                   ║
+╚══════════════════════════════════════════════════════╝
 
-When you select **Collect Logs + ZIP**, the archive contains:
+  [1]  Deploy (Build + Start)
+  [2]  Start containers
+  [3]  Stop containers
+  [4]  Restart containers
+  [5]  Pull latest code + Rebuild
+  [6]  Apply patch / hotfix
+  [7]  Run diagnostics & auto-fix
+  [8]  Collect logs + ZIP archive
+  [9]  View live logs (tail -f)
+  [10] Open app in browser
+  [11] Full cleanup (containers + images)
+  [0]  Exit
+```
 
-| File | Contents |
+### Option Details
+
+| Option | What it does |
 |---|---|
-| `container-stdout.log` | Full container stdout/stderr |
-| `container-24h.log` | Last 24 hours of container logs |
-| `container-inspect.json` | Full `docker inspect` output |
-| `container-stats.txt` | CPU/memory snapshot |
-| `docker-images.txt` | All local Docker images |
-| `docker-ps.txt` | All containers (including stopped) |
-| `docker-system-df.txt` | Docker disk usage |
-| `nginx-access.log` | Nginx access log from container |
-| `nginx-error.log` | Nginx error log from container |
-| `app-logs/` | Contents of `.manus-logs/` directory |
-| `system-info.txt` | OS, Docker, Node, Git versions + network + disk |
-| `env-redacted.txt` | `.env` with all secrets replaced by `***REDACTED***` |
+| **Deploy** | `docker-compose build` → `docker-compose up -d` → health check → open browser |
+| **Start** | `docker-compose start` — starts stopped containers without rebuilding |
+| **Stop** | `docker-compose stop` — graceful shutdown |
+| **Restart** | `docker-compose restart` — rolling restart |
+| **Pull + Rebuild** | `git pull origin main` → `docker-compose build --no-cache` → `docker-compose up -d` |
+| **Patch / Hotfix** | Prompts for patch description → `git stash` → `git pull` → rebuild → deploy |
+| **Diagnostics** | Checks Docker status, port conflicts, disk space, container health, auto-restarts unhealthy containers |
+| **Collect Logs + ZIP** | Collects all Docker logs, app logs, system info → zips into `logs_YYYYMMDD_HHMMSS.zip` |
+| **Live Logs** | `docker-compose logs -f` — streaming log tail |
+| **Open Browser** | Opens `http://localhost:80` in default browser |
+| **Full Cleanup** | Stops containers, removes images, prunes volumes (with confirmation prompt) |
 
 ---
 
-## API Keys & Configuration
+## Log Collection & Diagnostics
 
-All keys are configured in **Screen 8 (Settings)** of the dashboard and stored in `localStorage`. For Docker deployments, they are also read from the `.env` file.
+### Automated Log Collection
 
-| Key | Where to Get | Used By |
-|---|---|---|
-| `OPENAI_API_KEY` | [platform.openai.com/api-keys](https://platform.openai.com/api-keys) | Frontier Agent, Scanner Agent, Planner Agent |
-| `ANTHROPIC_API_KEY` | [console.anthropic.com/settings/keys](https://console.anthropic.com/settings/keys) | Messenger Agent (Claude Sonnet) |
-| `DEEPSEEK_API_KEY` | [platform.deepseek.com](https://platform.deepseek.com) | Frontier Agent (optional alternative) |
-| `MODAL_TOKEN_ID` + `MODAL_TOKEN_SECRET` | [modal.com](https://modal.com) → Settings → Tokens | Specialist Agent (LLaMA on GPU) |
-| `HF_TOKEN` | [huggingface.co/settings/tokens](https://huggingface.co/settings/tokens) | Downloading base model weights |
-| `PUSHOVER_USER` + `PUSHOVER_TOKEN` | [pushover.net](https://pushover.net) | Messenger Agent notifications |
+The **Collect Logs + ZIP** option (menu option 8) gathers:
 
-### Agent Parameters
+```
+logs_20260706_143022.zip
+├── docker/
+│   ├── agent-dashboard-prod.log      # Container stdout/stderr
+│   ├── docker-compose-ps.txt         # Container status
+│   └── docker-inspect.json           # Full container metadata
+├── app/
+│   ├── nginx-access.log              # HTTP access log
+│   ├── nginx-error.log               # HTTP error log
+│   └── build-output.txt              # Last build output
+├── system/
+│   ├── system-info.txt               # OS, CPU, memory, disk
+│   ├── docker-version.txt            # Docker + compose versions
+│   └── network-ports.txt             # Open ports snapshot
+└── manifest.txt                      # Collection timestamp + summary
+```
 
-| Parameter | Default | Description |
-|---|---|---|
-| `DEAL_THRESHOLD` | `50` | Minimum USD discount to trigger a push notification |
-| `MAX_DATAPOINTS` | `2000` | ChromaDB embeddings used for t-SNE visualisation |
-| `BASE_MODEL` | `meta-llama/Llama-3.2-3B` | HuggingFace base model for fine-tuning |
-| `FINETUNED_MODEL` | `ed-donner/price-2025-11-28_18.47.07` | Fine-tuned model on HuggingFace Hub |
-| `GPU` | `T4` | Modal.com GPU type (T4, A10G, A100) |
-| `OLLAMA_BASE_URL` | `http://localhost:11434` | Local Ollama endpoint for preprocessor |
-| `CHROMA_DB_PATH` | `products_vectorstore` | ChromaDB persistence directory |
+### Manual Log Commands
 
----
+```bash
+# View live container logs
+docker-compose logs -f agent-dashboard
 
-## Dashboard Visualisations
+# Export logs to file
+docker-compose logs --no-color > app_logs_$(date +%Y%m%d).txt
 
-The dashboard (Screen 6) contains five Recharts-powered charts, all driven by the live agent state:
+# Check container health
+docker inspect --format='{{.State.Health.Status}}' agent-dashboard-prod
 
-**Price Prediction Accuracy vs Actual** — A grouped bar chart with one bar group per product (last five estimates). Each group shows three bars: Specialist estimate, Frontier estimate, and Ensemble estimate, with the actual price overlaid as a reference line. This chart directly answers the question "which model is closest to reality?"
-
-**Agent Run Distribution** — A donut chart showing the share of total runs contributed by each of the seven agents. Hovering a segment shows the agent name, run count, and percentage.
-
-**Deal Discount Distribution** — A vertical bar chart bucketing all discovered deals by discount range. The x-axis shows ranges ($0–25, $25–50, $50–100, $100–200, $200+) and the y-axis shows deal count. This reveals whether the scanner is finding genuinely significant deals.
-
-**Ensemble Model Comparison** — A radar chart with five axes (Accuracy, Speed, Cost Efficiency, Reliability, Coverage). Each agent is plotted as a separate polygon, making it easy to see trade-offs at a glance.
-
-**Agent Activity Timeline** — A stacked area chart showing runs per hour over the last 24 hours. Each agent is a separate coloured area, revealing usage patterns and peak activity periods.
-
----
-
-## Test Scripts
-
-Screen 7 provides an in-browser runner for tests derived from the original Jupyter notebooks:
-
-| Test Suite | Source | Description |
-|---|---|---|
-| **Day 1 — Modal Setup** | `day1.ipynb` | Verifies Modal token, deploys pricer service, runs a test inference |
-| **Day 2 — RAG Pipeline** | `day2.ipynb` | Tests ChromaDB connection, embedding generation, and similarity search |
-| **Day 3 — Frontier Agent** | `day3.ipynb` | Validates OpenAI/DeepSeek API connectivity and RAG-augmented prompt |
-| **Day 4 — Scanner & Messenger** | `day4.ipynb` | Tests RSS feed parsing, deal evaluation, and Pushover notification |
-| **Day 5 — Ensemble & Planner** | `day5.ipynb` | End-to-end ensemble run and autonomous planner ReAct loop |
-
-Each test card shows the test name, description, expected output, and a **Run** button that replays the notebook cell output in a terminal panel.
-
----
-
-## Troubleshooting & Diagnostics
-
-### Common Issues
-
-**Dashboard shows blank page after Docker deploy**
-
-The Nginx SPA routing may not be configured. Verify `nginx.conf` is correctly copied into the image and that `try_files $uri $uri/ /index.html` is present in the `location /` block. Run `docker logs agent-dashboard` to check for nginx errors.
-
-**"Failed to resolve import ./pages/DashboardPage"**
-
-This is a Vite dev-server cache issue. Run `pnpm run dev` fresh after a `rm -rf node_modules/.vite` cache clear, or use `./scripts/manage.sh fix` which runs `docker system prune -f`.
-
-**API keys not persisting between sessions**
-
-Settings are stored in `localStorage`. If you are running in a private/incognito browser window, `localStorage` is cleared on close. Use the **Export .env** button in Screen 8 to save keys to a file.
-
-**Container exits immediately**
-
-Check logs with `docker logs agent-dashboard`. The most common cause is a missing or malformed `nginx.conf`. Ensure the build completed successfully with `docker build` before running.
-
-### Using the Fix Script
-
-The **Fix** option (menu item 7) runs five automated checks and offers to resolve them:
-
-1. Container status — restarts if stopped or missing
-2. Port availability — reports if `3000` is occupied by another process
-3. Image existence — triggers a rebuild if the image is missing
-4. `.env` presence — warns if API keys are not configured
-5. Disk space — reports free space on the project volume
-
-After checks, it runs `docker system prune -f` to reclaim space from dangling images and stopped containers.
+# View nginx access log inside container
+docker exec agent-dashboard-prod cat /var/log/nginx/access.log
+```
 
 ---
 
@@ -391,46 +471,136 @@ After checks, it runs `docker system prune -f` to reclaim space from dangling im
 
 ```
 sevenagentproject/
-├── client/
-│   ├── index.html
-│   └── src/
-│       ├── App.tsx                          ← Router with all 8 routes
-│       ├── index.css                        ← Blue-shades theme + custom classes
-│       ├── contexts/
-│       │   └── AgentContext.tsx             ← Central state store
-│       ├── components/
-│       │   ├── AppLayout.tsx                ← Sidebar + top bar
-│       │   └── AgentCard.tsx                ← Shared agent UI components
-│       └── pages/
-│           ├── DashboardPage.tsx            ← Screen 6
-│           ├── Screen1ModalSpecialist.tsx   ← Screen 1
-│           ├── Screen2RAGFrontierEnsemble.tsx ← Screen 2
-│           ├── Screen3ScannerMessenger.tsx  ← Screen 3
-│           ├── Screen4PlannerFramework.tsx  ← Screen 4
-│           ├── Screen5PriceIsRight.tsx      ← Screen 5
-│           ├── Screen7TestScripts.tsx       ← Screen 7
-│           └── Screen8Settings.tsx         ← Screen 8
+├── client/                          # React frontend
+│   ├── src/
+│   │   ├── pages/
+│   │   │   ├── DashboardPage.tsx    # Screen 6: Mission Control
+│   │   │   ├── Screen1ModalSpecialist.tsx   # GPU Inference Engine
+│   │   │   ├── Screen2RAGFrontierEnsemble.tsx  # Knowledge Retrieval Hub
+│   │   │   ├── Screen3ScannerMessenger.tsx  # Deal Radar & Alerts
+│   │   │   ├── Screen4PlannerFramework.tsx  # Autonomous Operations
+│   │   │   ├── Screen5PriceIsRight.tsx      # Grand Finale Arena
+│   │   │   ├── Screen7TestScripts.tsx       # Lab & Diagnostics
+│   │   │   └── Screen8Settings.tsx          # Command Vault
+│   │   ├── components/
+│   │   │   ├── AppLayout.tsx        # Sidebar + navigation
+│   │   │   └── AgentCard.tsx        # Shared: PageHeader, LogTerminal, AgentStatusCard
+│   │   ├── contexts/
+│   │   │   └── AgentContext.tsx     # Global agent state + notebook messages
+│   │   └── index.css                # Blue-shades theme
+├── python-agents/                   # Original Python agent source
+│   ├── agents/
+│   │   ├── specialist_agent.py
+│   │   ├── frontier_agent.py
+│   │   ├── ensemble_agent.py
+│   │   ├── scanner_agent.py
+│   │   ├── messaging_agent.py
+│   │   ├── autonomous_planning_agent.py
+│   │   └── deal_agent_framework.py
+│   ├── pricer_service2.py           # Modal.com GPU service
+│   ├── price_is_right.py            # Main orchestrator
+│   └── notebooks/                   # day1.ipynb → day5.ipynb
 ├── scripts/
-│   ├── manage.sh                            ← Linux/macOS interactive script
-│   └── manage.ps1                           ← Windows PowerShell interactive script
-├── Dockerfile                               ← Multi-stage production build
-├── Dockerfile.dev                           ← Development with HMR
-├── docker-compose.yml                       ← Multi-profile compose file
-├── nginx.conf                               ← Nginx SPA config with gzip + security
-├── .env.template                            ← Environment variable template
-├── prompt.md                                ← All user prompts from this session
-└── README.md                                ← This file
+│   ├── manage.sh                    # Linux/macOS interactive management
+│   └── manage.ps1                   # Windows PowerShell management
+├── docs/
+│   ├── screenshots/                 # Module screenshots for README
+│   └── architecture_flow.png        # System architecture diagram
+├── Dockerfile                       # Multi-stage production build
+├── Dockerfile.dev                   # Development with hot reload
+├── docker-compose.yml               # Multi-profile compose config
+├── nginx.conf                       # Nginx reverse proxy config
+├── .env.template                    # Environment variable template
+├── prompt.md                        # All prompts used to build this app
+└── README.md                        # This file
 ```
 
 ---
 
-## Disclaimer
+## User Guide
 
-**Author:** Lalit Nayyar
-**Email:** [lalitnayyar@gmail.com](mailto:lalitnayyar@gmail.com)
-**Phone:** +971508320336 | +919595353336
-**GitHub:** [github.com/lalitnayyar](https://github.com/lalitnayyar)
+### Navigating the Dashboard
 
-This project is developed for educational and demonstration purposes, showcasing the integration of multiple AI agents in a unified React dashboard. All agent simulations in the frontend are representative of the actual Python agent behaviour documented in the accompanying Jupyter notebooks. API keys and credentials are never transmitted beyond your local browser's `localStorage`.
+The sidebar on the left provides access to all 8 modules. The top-right corner shows the count of active agents and a global **Start All Agents** button at the bottom of the sidebar.
 
-> **Note:** The fine-tuned model weights (`ed-donner/price-2025-11-28_18.47.07`) and the original training dataset are the intellectual property of their respective authors. This dashboard provides a UI layer only and does not redistribute model weights.
+### Running Agents
+
+1. Navigate to **Command Vault** and enter your API keys
+2. Click **Verify** on each key to confirm it works
+3. Return to **Mission Control** and click **Start All Agents**
+4. Watch the activity logs stream in each agent's module
+5. Monitor results in the **Grand Finale Arena**
+
+### Viewing Test Scripts
+
+1. Navigate to **Lab & Diagnostics**
+2. Browse tests grouped by notebook day
+3. Click **Run** on any test to see simulated output
+4. Use **Copy** to get the Python code for local execution
+
+### Configuring Ensemble Weights
+
+1. Navigate to **Knowledge Retrieval Hub**
+2. Scroll to the EnsembleAgent section
+3. Adjust the weight sliders for SpecialistAgent vs FrontierAgent
+4. The combined estimate updates in real time
+
+### Exporting Configuration
+
+1. Navigate to **Command Vault**
+2. Fill in all your keys
+3. Click **Export .env** to download a `.env` file
+4. Place this file in the `python-agents/` directory
+
+---
+
+## Development
+
+### Tech Stack
+
+| Layer | Technology |
+|---|---|
+| Framework | React 19 + TypeScript 5.6 |
+| Routing | Wouter 3 |
+| Styling | Tailwind CSS 4 + shadcn/ui |
+| Charts | Recharts 2 |
+| Animations | Framer Motion 12 |
+| Icons | Lucide React |
+| Build | Vite 7 |
+| Container | Docker + Nginx 1.27 |
+
+### Available Scripts
+
+```bash
+pnpm dev          # Start development server (port 3000)
+pnpm build        # Production build
+pnpm preview      # Preview production build
+pnpm check        # TypeScript type check
+pnpm format       # Prettier formatting
+```
+
+### Adding a New Agent Screen
+
+1. Create `client/src/pages/ScreenNewAgent.tsx`
+2. Add the route in `client/src/App.tsx`
+3. Add the nav item in `client/src/components/AppLayout.tsx`
+4. Add agent state in `client/src/contexts/AgentContext.tsx`
+
+---
+
+## License
+
+MIT License — see [LICENSE](LICENSE) for details.
+
+---
+
+## Acknowledgements
+
+Built on top of the [7-Agent Price Intelligence prototype](https://github.com/lalitnayyar/sevenagentproject) — a multi-agent AI system for automated deal discovery and price estimation using fine-tuned LLMs, RAG, and autonomous planning.
+
+**Original agent architecture by:** Ed Donner (LLM Engineering course)
+**Dashboard UI by:** Lalit Nayyar
+
+---
+
+*Generated with the 7-Agent Dashboard prompt session — see [prompt.md](prompt.md) for the full build conversation.*
