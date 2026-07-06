@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -60,45 +60,55 @@ export default function Screen3ScannerMessenger() {
   const autoNotify = trpc.agents.autoNotify.useMutation();
   const [autoNotifying, setAutoNotifying] = useState(false);
   const [notifiedCount, setNotifiedCount] = useState(0);
+
+  // Stable ref so async callbacks always call the latest mutation instance
   const autoNotifyRef = useRef(autoNotify);
   useEffect(() => { autoNotifyRef.current = autoNotify; }, [autoNotify]);
 
-  // Fire top-3 deal notifications after scan completes
-  useEffect(() => {
-    if (!autoNotifying || deals.length === 0) return;
-    setAutoNotifying(false);
-
-    const medals = ["\uD83E\uDD47 Deal #1", "\uD83E\uDD48 Deal #2", "\uD83E\uDD49 Deal #3"];
-    const top3 = [...deals]
+  // Helper: send top-N deals as Pushover notifications (staggered)
+  const sendTopDealsNotifications = useCallback(async (dealsSnapshot: Deal[]) => {
+    const medals = ["🥇 Deal #1", "🥈 Deal #2", "🥉 Deal #3"];
+    const top3 = [...dealsSnapshot]
       .sort((a, b) => b.discount - a.discount)
       .slice(0, 3);
 
-    top3.forEach((deal, idx) => {
-      setTimeout(async () => {
-        const msg = `${deal.product} — now $${deal.price.toFixed(2)} (save $${deal.discount.toFixed(2)})`;
-        try {
-          const result = await autoNotifyRef.current.mutateAsync({
-            title: `7-Agent ${medals[idx]}`,
-            message: msg.slice(0, 512),
-            sound: "cashregister",
-            url: deal.url,
+    if (top3.length === 0) {
+      toast.error("No deals to notify — run scanner first");
+      return;
+    }
+
+    setAutoNotifying(true);
+    setNotifiedCount(0);
+    let sent = 0;
+
+    for (let idx = 0; idx < top3.length; idx++) {
+      const deal = top3[idx];
+      if (idx > 0) await new Promise(r => setTimeout(r, 1200)); // stagger 1.2s
+      const msg = `${deal.product} — now $${deal.price.toFixed(2)} (save $${deal.discount.toFixed(2)})`;
+      try {
+        const result = await autoNotifyRef.current.mutateAsync({
+          title: `7-Agent ${medals[idx]}`,
+          message: msg.slice(0, 512),
+          sound: "cashregister",
+          url: deal.url,
+        });
+        if (result.success) {
+          sent++;
+          setNotifiedCount(sent);
+          toast.success(`${medals[idx]} sent to Pushover! 🔔`, {
+            description: `${deal.product.slice(0, 40)}... • ${result.latency}ms`,
           });
-          if (result.success) {
-            setNotifiedCount(prev => prev + 1);
-            toast.success(`${medals[idx]} notification sent! 🔔`, {
-              description: `${deal.product.slice(0, 40)}... • ${result.latency}ms`,
-            });
-          } else {
-            toast.error(`Notification #${idx + 1} failed`, { description: result.message });
-          }
-        } catch (err) {
-          toast.error(`Notification #${idx + 1} error`, {
-            description: err instanceof Error ? err.message : "Unknown error",
-          });
+        } else {
+          toast.error(`Notification #${idx + 1} failed`, { description: result.message });
         }
-      }, idx * 1200); // stagger 1.2s apart to avoid Pushover rate limiting
-    });
-  }, [autoNotifying, deals]);
+      } catch (err) {
+        toast.error(`Notification #${idx + 1} error`, {
+          description: err instanceof Error ? err.message : "Unknown error",
+        });
+      }
+    }
+    setAutoNotifying(false);
+  }, []);
 
   const handleScan = async () => {
     setScanning(true);
@@ -107,21 +117,26 @@ export default function Screen3ScannerMessenger() {
     await new Promise(r => setTimeout(r, 8000));
 
     // Add a fresh deal from this scan run
-    addDeal({
+    const newDeal = {
       product: "Sony WH-1000XM5 Wireless Noise Canceling Headphones",
       price: 199,
       estimate: 349.99,
       discount: 150.99,
       url: "https://www.dealnews.com/Sony-WH-1000XM5",
-    });
+    };
+    addDeal(newDeal);
 
-    toast.success("Scanner found new deals!");
+    toast.success("Scanner found new deals! Sending top-3 Pushover alerts...");
     setScanning(false);
 
-    // After scan completes, fire top-3 deal notifications via server-side autoNotify
-    // We read deals from context — but addDeal is async state update, so wait one tick
-    await new Promise(r => setTimeout(r, 200));
-    setAutoNotifying(true);
+    // Build snapshot directly — don't wait for React state update
+    // Include the new deal plus all existing deals, then sort by discount
+    const dealsSnapshot: Deal[] = [
+      { ...newDeal, id: `scan-${Date.now()}`, timestamp: new Date().toISOString() },
+      ...deals,
+    ];
+    // Fire notifications immediately with the snapshot (no useEffect, no state timing)
+    sendTopDealsNotifications(dealsSnapshot);
   };
 
   const openNotifyDialog = (deal: Deal) => {
