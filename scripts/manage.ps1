@@ -74,6 +74,7 @@ function Kill-Port {
     Write-Step "Checking if port $Port is in use..."
 
     # 1. Stop any Docker container mapped to this host port
+    $foundContainer = $false
     $runningContainers = docker ps --format '{{.Names}}' 2>$null
     if ($runningContainers) {
         foreach ($c in $runningContainers) {
@@ -83,11 +84,14 @@ function Kill-Port {
                 docker stop $c 2>$null | Out-Null
                 docker rm   $c 2>$null | Out-Null
                 Write-Success "Container '$c' stopped and removed"
+                $foundContainer = $true
             }
         }
     }
+    # Wait for Docker networking to release the port binding after container stop
+    if ($foundContainer) { Start-Sleep -Seconds 2 }
 
-    # 2. Kill any OS-level process holding the port
+    # 2. Kill any OS-level process still holding the port
     $netstatOutput = netstat -ano 2>$null | Select-String ":$Port "
     if ($netstatOutput) {
         $pids = $netstatOutput | ForEach-Object {
@@ -240,8 +244,15 @@ function Restart-App {
     Write-Host "  RESTART — Restart Containers" -ForegroundColor White
     Write-Host ""
     if (-not (Check-Docker)) { return }
-    Write-Step "Restarting container..."
-    docker restart $CONTAINER_NAME
+    Write-Step "Stopping container..."
+    docker stop $CONTAINER_NAME 2>$null | Out-Null
+    docker rm   $CONTAINER_NAME 2>$null | Out-Null
+    Kill-Port $DEFAULT_PORT
+    Write-Step "Starting container..."
+    $projectRoot = Resolve-Path (Join-Path $PSScriptRoot "..")
+    $envFile = Join-Path $projectRoot ".env"
+    $envArg = if (Test-Path $envFile) { @("--env-file", $envFile) } else { @() }
+    docker run -d --name $CONTAINER_NAME --restart unless-stopped -p "${DEFAULT_PORT}:3000" @envArg "${IMAGE_NAME}:latest"
     Write-Success "Restarted! Dashboard: http://localhost:$DEFAULT_PORT"
 }
 

@@ -139,10 +139,11 @@ kill_port() {
             docker rm   "$c" 2>/dev/null || true
         done
         log_success "Conflicting container(s) stopped"
-        return 0
+        # Wait for Docker networking to release the port binding
+        sleep 2
     fi
 
-    # 2. Kill any OS-level process holding the port (Linux: ss/fuser, macOS: lsof)
+    # 2. Kill any OS-level process still holding the port (Linux: ss/fuser, macOS: lsof)
     local pid=""
     if command -v ss &>/dev/null; then
         pid=$(ss -tlnp 2>/dev/null | awk -v p=":${port}" '$4 ~ p {match($6,/pid=([0-9]+)/,a); if(a[1]) print a[1]}')
@@ -155,7 +156,7 @@ kill_port() {
     fi
 
     if [[ -n "$pid" ]]; then
-        log_warn "Port ${port} held by PID ${pid} — killing..."
+        log_warn "Port ${port} still held by PID ${pid} — killing..."
         kill -9 "$pid" 2>/dev/null || true
         sleep 1
         log_success "PID ${pid} killed — port ${port} is now free"
@@ -292,8 +293,16 @@ restart_app() {
     echo -e "  ${WHITE}RESTART — Restart Containers${NC}"
     echo ""
     check_docker || return
-    log_step "Restarting container..."
-    docker restart "$CONTAINER_NAME"
+    log_step "Stopping container..."
+    docker stop "$CONTAINER_NAME" 2>/dev/null || true
+    docker rm   "$CONTAINER_NAME" 2>/dev/null || true
+    kill_port "${DEFAULT_PORT}"
+    log_step "Starting container..."
+    local env_arg=""
+    [[ -f "$PROJECT_ROOT/.env" ]] && env_arg="--env-file $PROJECT_ROOT/.env"
+    # shellcheck disable=SC2086
+    docker run -d --name "$CONTAINER_NAME" --restart unless-stopped \
+        -p "${DEFAULT_PORT}:3000" $env_arg "${IMAGE_NAME}:latest"
     log_success "Restarted! Dashboard: http://localhost:${DEFAULT_PORT}"
 }
 
