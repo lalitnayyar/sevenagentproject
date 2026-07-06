@@ -125,7 +125,7 @@ DealAgentFramework ─── orchestrates pricing for each deal
 
 > The central command center showing all 7 agents' live status, KPI metrics, and 5 Recharts visualizations including price accuracy, deal distribution, and model comparison.
 
-![Mission Control Dashboard](docs/screenshots/screen6_dashboard.png)
+![Mission Control Dashboard](https://raw.githubusercontent.com/lalitnayyar/sevenagentproject/main/docs/screenshots/screen6_dashboard.png)
 
 **Features:**
 - 4 KPI cards: Total Deals Scanned, Notifications Sent, Avg Price Accuracy, Active Agents
@@ -144,7 +144,7 @@ DealAgentFramework ─── orchestrates pricing for each deal
 
 > Deploy and run fine-tuned LLaMA 3.2-3B on Modal.com GPU infrastructure. Configure GPU type, monitor deployment status, and run live price estimations.
 
-![GPU Inference Engine](docs/screenshots/screen1_gpu_inference.png)
+![GPU Inference Engine](https://raw.githubusercontent.com/lalitnayyar/sevenagentproject/main/docs/screenshots/screen1_gpu_inference.png)
 
 **Features:**
 - Modal.com deployment status panel
@@ -160,7 +160,7 @@ DealAgentFramework ─── orchestrates pricing for each deal
 
 > Visualize the RAG pipeline, query the ChromaDB vector store, and configure ensemble weights for combining multiple agent estimates.
 
-![Knowledge Retrieval Hub](docs/screenshots/screen2_knowledge_retrieval.png)
+![Knowledge Retrieval Hub](https://raw.githubusercontent.com/lalitnayyar/sevenagentproject/main/docs/screenshots/screen2_knowledge_retrieval.png)
 
 **Features:**
 - RAG pipeline flow diagram (Query → Embed → ChromaDB → Retrieve → Prompt → GPT-4o-mini)
@@ -175,7 +175,7 @@ DealAgentFramework ─── orchestrates pricing for each deal
 
 > Monitor Amazon RSS feed scanning, view discovered deals in a live table, and configure Pushover notification delivery.
 
-![Deal Radar & Alerts](docs/screenshots/screen3_deal_radar.png)
+![Deal Radar & Alerts](https://raw.githubusercontent.com/lalitnayyar/sevenagentproject/main/docs/screenshots/screen3_deal_radar.png)
 
 **Features:**
 - RSS feed list with scan status indicators
@@ -190,7 +190,7 @@ DealAgentFramework ─── orchestrates pricing for each deal
 
 > Visualize the ReAct reasoning loop, monitor tool calls, and see the full deal evaluation orchestration graph.
 
-![Autonomous Operations](docs/screenshots/screen4_autonomous_ops.png)
+![Autonomous Operations](https://raw.githubusercontent.com/lalitnayyar/sevenagentproject/main/docs/screenshots/screen4_autonomous_ops.png)
 
 **Features:**
 - ReAct loop visualizer (Think → Act → Observe → Repeat)
@@ -205,7 +205,7 @@ DealAgentFramework ─── orchestrates pricing for each deal
 
 > The full end-to-end pipeline in action. See all agents collaborate to evaluate deals and produce a ranked leaderboard of the best finds.
 
-![Grand Finale Arena](docs/screenshots/screen5_grand_finale.png)
+![Grand Finale Arena](https://raw.githubusercontent.com/lalitnayyar/sevenagentproject/main/docs/screenshots/screen5_grand_finale.png)
 
 **Features:**
 - Full pipeline execution panel
@@ -220,7 +220,7 @@ DealAgentFramework ─── orchestrates pricing for each deal
 
 > Run all 13 test scripts extracted from the original day1–day5 Jupyter notebooks directly from the browser.
 
-![Lab & Diagnostics](docs/screenshots/screen7_test_lab.png)
+![Lab & Diagnostics](https://raw.githubusercontent.com/lalitnayyar/sevenagentproject/main/docs/screenshots/screen7_test_lab.png)
 
 **Features:**
 - 13 test scripts grouped by notebook day (Day 1–5)
@@ -235,7 +235,7 @@ DealAgentFramework ─── orchestrates pricing for each deal
 
 > Central configuration hub for all API keys and parameters. Every key has a **live Test button** that makes a real API call and shows the response.
 
-![Command Vault Settings](docs/screenshots/screen8_command_vault.png)
+![Command Vault Settings](https://raw.githubusercontent.com/lalitnayyar/sevenagentproject/main/docs/screenshots/screen8_command_vault.png)
 
 **Features:**
 - 6 configuration tabs: LLM APIs, Modal.com, HuggingFace, Pushover, Vector DB, Model Config
