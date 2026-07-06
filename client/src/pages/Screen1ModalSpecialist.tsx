@@ -51,8 +51,8 @@ export default function Screen1ModalSpecialist() {
   return (
     <div className="min-h-full">
       <PageHeader
-        badge="Screen 1"
-        title="Modal.com & Specialist Agent"
+        badge="GPU Inference Engine"
+        title="Modal.com · Specialist Agent"
         subtitle="Fine-tuned LLaMA 3.2-3B deployed on Modal.com GPU infrastructure for product price estimation"
       >
         <div className="flex items-center gap-2 bg-white/10 rounded-lg px-3 py-2">

@@ -55,7 +55,7 @@ export default function Screen4PlannerFramework() {
   return (
     <div className="min-h-full">
       <PageHeader
-        badge="Screen 4"
+        badge="Autonomous Orchestrator"
         title="Autonomous Planner · Deal Agent Framework"
         subtitle="LLM tool-calling autonomous agent + orchestration framework with memory persistence and t-SNE visualization"
       />

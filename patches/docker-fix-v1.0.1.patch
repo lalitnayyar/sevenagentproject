@@ -1,12 +1,129 @@
-# ==============================================================
-# 7-Agent Price Intelligence Dashboard — Docker Fix Patch v1.0.1
-# Author: Lalit Nayyar
-# Date: 2026-07-06
-# Apply with: patch -p1 < docker-fix-v1.0.1.patch
-# ==============================================================
+From 42685e2c12cbb60e22c74f964d0e49dbe8f43008 Mon Sep 17 00:00:00 2001
+From: Lalit Nayyar <lalitnayyar@gmail.com>
+Date: Mon, 6 Jul 2026 09:39:44 +0000
+Subject: [PATCH] =?UTF-8?q?fix:=20Docker=20build=20errors=20=E2=80=94=20pa?=
+ =?UTF-8?q?tch=20v1.0.1?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
 
---- /tmp/patch-originals/Dockerfile.orig	2026-07-06 09:36:29.054871304 +0000
-+++ Dockerfile	2026-07-06 09:37:14.887151290 +0000
+Root cause from pasted build log:
+  ERROR: failed to solve: failed to compute cache key: "/pnpm-lock.yaml": not found
+
+All fixes applied in this commit:
+
+Dockerfile:
+  - Added .dockerignore (prevents node_modules ~500MB being sent as build context)
+  - Added VITE_ANALYTICS_ENDPOINT + VITE_ANALYTICS_WEBSITE_ID ARGs
+  - mkdir nginx cache subdirs before chown (prevents permission error on non-root user)
+  - HEALTHCHECK: wget /health → wget / with html grep (SPA has no /health route)
+  - start-period: 5s → 10s
+  - LABEL version: 1.0.0 → 1.0.1
+
+Dockerfile.dev:
+  - EXPOSE: 5173 → 3000 (matches Vite config port)
+  - CMD: removed incorrect -- separator (pnpm run dev --host 0.0.0.0)
+  - COPY . . removed — source volume-mounted for HMR
+  - Added ENV NODE_ENV + CHOKIDAR_USEPOLLING
+
+docker-compose.yml:
+  - dashboard healthcheck: /health → / (SPA fix)
+  - dashboard build args: added VITE_ANALYTICS_* vars
+  - dashboard-dev port: 5173 → 3000
+  - dashboard-dev volumes: added server/, patches/, tsconfig, vite.config.ts
+  - agent-backend context: ./agent-backend → ./python-agents
+  - agent-backend healthcheck: added start_period: 15s
+
+.dockerignore (NEW):
+  - Excludes node_modules, dist, .git, .manus*, .manus-logs, .env, python-agents
+  - Reduces build context from ~600MB to ~2MB
+
+patches/docker-fix-v1.0.1.patch (NEW):
+  - Unified diff of all 4 file changes for review and cherry-pick
+---
+ .dockerignore      | 66 ++++++++++++++++++++++++++++++++++++++++++++++
+ Dockerfile         | 51 +++++++++++++++++++++++++----------
+ Dockerfile.dev     | 18 ++++++++++---
+ docker-compose.yml | 44 ++++++++++++++++++++++++-------
+ 4 files changed, 153 insertions(+), 26 deletions(-)
+ create mode 100644 .dockerignore
+
+diff --git a/.dockerignore b/.dockerignore
+new file mode 100644
+index 0000000..cc3e1d9
+--- /dev/null
++++ b/.dockerignore
+@@ -0,0 +1,66 @@
++# ──────────────────────────────────────────────────────────────────────────────
++# .dockerignore — 7-Agent Price Intelligence Dashboard
++# Prevents large/sensitive directories from being sent to Docker build context
++# Without this, node_modules (~500MB) gets sent on every build = very slow
++# ──────────────────────────────────────────────────────────────────────────────
++
++# Node.js dependencies (rebuilt inside container via pnpm install)
++node_modules/
++**/node_modules/
++
++# Build output (rebuilt inside container via pnpm run build)
++dist/
++**/dist/
++
++# Git history (not needed in image)
++.git/
++.gitignore
++
++# Manus platform files (dev-only tooling)
++.manus/
++.manus-logs/
++.project-config.json
++
++# Environment files with secrets (use --build-arg or docker-compose env_file)
++.env
++.env.local
++.env.*.local
++
++# Editor / IDE files
++.vscode/
++.idea/
++*.swp
++*.swo
++.DS_Store
++Thumbs.db
++
++# Test and coverage output
++coverage/
++*.test.ts
++*.spec.ts
++
++# Logs
++*.log
++logs/
++
++# Python agent files (not needed for React frontend image)
++python-agents/
++__pycache__/
++*.pyc
++*.pyo
++*.pyd
++.Python
++*.egg-info/
++
++# Docker files themselves (avoid recursive copy confusion)
++Dockerfile*
++docker-compose*.yml
++.dockerignore
++
++# Scripts (not needed inside the container)
++scripts/
++
++# Documentation
++docs/
++README.md
++prompt.md
+diff --git a/Dockerfile b/Dockerfile
+index 813a853..d45aafe 100644
+--- a/Dockerfile
++++ b/Dockerfile
 @@ -1,6 +1,14 @@
  # ──────────────────────────────────────────────────────────────────────────────
  # 7-Agent Price Intelligence Dashboard — Dockerfile
@@ -23,7 +140,7 @@
  # ──────────────────────────────────────────────────────────────────────────────
  
  # ── Stage 1: Build ─────────────────────────────────────────────────────────────
-@@ -8,55 +16,70 @@
+@@ -8,55 +16,70 @@ FROM node:22-alpine AS builder
  
  LABEL maintainer="Lalit Nayyar <lalitnayyar@gmail.com>"
  LABEL description="7-Agent Price Intelligence Dashboard — React Frontend"
@@ -107,8 +224,10 @@
 +    CMD wget -qO- http://localhost:80/ | grep -q "<!doctype html" || exit 1
  
  CMD ["nginx", "-g", "daemon off;"]
---- /tmp/patch-originals/Dockerfile.dev.orig	2026-07-06 09:36:29.054871304 +0000
-+++ Dockerfile.dev	2026-07-06 09:38:16.851536259 +0000
+diff --git a/Dockerfile.dev b/Dockerfile.dev
+index 1f72f45..63f7332 100644
+--- a/Dockerfile.dev
++++ b/Dockerfile.dev
 @@ -1,17 +1,29 @@
  # ── Development Dockerfile (HMR / hot-reload) ─────────────────────────────────
 +# FIX v1.0.1:
@@ -142,8 +261,10 @@
 +
 +# pnpm run dev passes --host 0.0.0.0 so Vite binds to all interfaces in container
 +CMD ["pnpm", "run", "dev", "--host", "0.0.0.0"]
---- /tmp/patch-originals/docker-compose.yml.orig	2026-07-06 09:36:29.058871328 +0000
-+++ docker-compose.yml	2026-07-06 09:39:04.987837872 +0000
+diff --git a/docker-compose.yml b/docker-compose.yml
+index 11c4630..0c12853 100644
+--- a/docker-compose.yml
++++ b/docker-compose.yml
 @@ -1,10 +1,22 @@
  # ──────────────────────────────────────────────────────────────────────────────
  # 7-Agent Price Intelligence Dashboard — Docker Compose
@@ -170,7 +291,7 @@
  # ──────────────────────────────────────────────────────────────────────────────
  
  services:
-@@ -18,6 +30,8 @@
+@@ -18,6 +30,8 @@ services:
        args:
          VITE_APP_TITLE: "${APP_TITLE:-7-Agent Price Intelligence Dashboard}"
          VITE_APP_ID: "agent-dashboard"
@@ -179,7 +300,7 @@
      image: agent-dashboard:${APP_VERSION:-latest}
      container_name: agent-dashboard
      restart: unless-stopped
-@@ -26,14 +40,15 @@
+@@ -26,14 +40,15 @@ services:
      environment:
        - TZ=${TZ:-UTC}
      healthcheck:
@@ -197,7 +318,7 @@
      networks:
        - agent-net
      logging:
-@@ -51,14 +66,23 @@
+@@ -51,14 +66,23 @@ services:
      container_name: agent-dashboard-dev
      profiles: ["dev"]
      ports:
@@ -222,7 +343,7 @@
      networks:
        - agent-net
  
-@@ -83,7 +107,8 @@
+@@ -83,7 +107,8 @@ services:
    # ── Python Agent Backend (optional, for real agent execution) ─────────────
    agent-backend:
      build:
@@ -232,7 +353,7 @@
        dockerfile: Dockerfile.python
      image: agent-backend:latest
      container_name: agent-backend
-@@ -99,12 +124,13 @@
+@@ -99,12 +124,13 @@ services:
      volumes:
        - agent-data:/app/data
        - agent-logs:/app/logs
@@ -247,7 +368,7 @@
      networks:
        - agent-net
      logging:
-@@ -113,7 +139,7 @@
+@@ -113,7 +139,7 @@ services:
          max-size: "50m"
          max-file: "10"
  
@@ -256,72 +377,6 @@
    log-viewer:
      image: amir20/dozzle:latest
      container_name: agent-log-viewer
---- .dockerignore.orig	2026-07-06 08:15:43.002299101 +0000
-+++ .dockerignore	2026-07-06 09:37:53.795392395 +0000
-@@ -0,0 +1,66 @@
-+# ──────────────────────────────────────────────────────────────────────────────
-+# .dockerignore — 7-Agent Price Intelligence Dashboard
-+# Prevents large/sensitive directories from being sent to Docker build context
-+# Without this, node_modules (~500MB) gets sent on every build = very slow
-+# ──────────────────────────────────────────────────────────────────────────────
-+
-+# Node.js dependencies (rebuilt inside container via pnpm install)
-+node_modules/
-+**/node_modules/
-+
-+# Build output (rebuilt inside container via pnpm run build)
-+dist/
-+**/dist/
-+
-+# Git history (not needed in image)
-+.git/
-+.gitignore
-+
-+# Manus platform files (dev-only tooling)
-+.manus/
-+.manus-logs/
-+.project-config.json
-+
-+# Environment files with secrets (use --build-arg or docker-compose env_file)
-+.env
-+.env.local
-+.env.*.local
-+
-+# Editor / IDE files
-+.vscode/
-+.idea/
-+*.swp
-+*.swo
-+.DS_Store
-+Thumbs.db
-+
-+# Test and coverage output
-+coverage/
-+*.test.ts
-+*.spec.ts
-+
-+# Logs
-+*.log
-+logs/
-+
-+# Python agent files (not needed for React frontend image)
-+python-agents/
-+__pycache__/
-+*.pyc
-+*.pyo
-+*.pyd
-+.Python
-+*.egg-info/
-+
-+# Docker files themselves (avoid recursive copy confusion)
-+Dockerfile*
-+docker-compose*.yml
-+.dockerignore
-+
-+# Scripts (not needed inside the container)
-+scripts/
-+
-+# Documentation
-+docs/
-+README.md
-+prompt.md
+-- 
+2.43.0
+

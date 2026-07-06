@@ -292,7 +292,7 @@ export default function Screen7TestScripts() {
   return (
     <div className="min-h-full">
       <PageHeader
-        badge="Screen 7"
+        badge="Lab & Diagnostics"
         title="Test Scripts Runner"
         subtitle="Run all test scripts extracted from day1.ipynb through day5.ipynb notebooks"
       />

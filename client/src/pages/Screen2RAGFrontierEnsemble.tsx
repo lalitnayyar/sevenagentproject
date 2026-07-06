@@ -47,7 +47,7 @@ export default function Screen2RAGFrontierEnsemble() {
   return (
     <div className="min-h-full">
       <PageHeader
-        badge="Screen 2"
+        badge="Knowledge Retrieval Hub"
         title="RAG · FrontierAgent · EnsembleAgent"
         subtitle="Retrieval-Augmented Generation with ChromaDB + frontier LLM + weighted ensemble pricing"
       />

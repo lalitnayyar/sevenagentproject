@@ -49,7 +49,7 @@ export default function Screen3ScannerMessenger() {
   return (
     <div className="min-h-full">
       <PageHeader
-        badge="Screen 3"
+        badge="Deal Radar & Alerts"
         title="Scanner Agent · Messaging Agent"
         subtitle="RSS deal scraping with GPT-4o-mini summarization + Claude-powered Pushover push notifications"
       />

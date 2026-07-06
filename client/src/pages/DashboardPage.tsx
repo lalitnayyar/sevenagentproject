@@ -88,8 +88,8 @@ export default function DashboardPage() {
       <div className="gradient-header px-6 py-5 text-white">
         <div className="flex items-start justify-between gap-4">
           <div>
-            <span className="inline-block bg-white/20 text-white text-xs font-semibold px-2.5 py-1 rounded-full mb-2">Screen 6 — Dashboard</span>
-            <h1 className="text-2xl font-bold">7-Agent Price Intelligence Dashboard</h1>
+            <span className="inline-block bg-white/20 text-white text-xs font-semibold px-2.5 py-1 rounded-full mb-2">Mission Control</span>
+            <h1 className="text-2xl font-bold">7-Agent Price Intelligence Command Centre</h1>
             <p className="text-blue-100 text-sm mt-1">Real-time overview of all agents, metrics, and deal activity</p>
           </div>
           <div className="flex gap-2">
@@ -166,7 +166,7 @@ export default function DashboardPage() {
                       </div>
                     </div>
                     <div className="flex items-center gap-1 mt-2 text-[10px] text-blue-600">
-                      <span>Screen {agent.screen}</span>
+                      <span>View Module</span>
                       <ArrowRight className="w-2.5 h-2.5" />
                     </div>
                   </div>
@@ -371,8 +371,8 @@ export default function DashboardPage() {
                       </td>
                       <td className="py-2.5 px-3">
                         <Link href={`/screen${agent.screen}`}>
-                          <Badge variant="secondary" className="cursor-pointer hover:bg-primary hover:text-primary-foreground transition-colors">
-                            Screen {agent.screen}
+                          <Badge variant="secondary" className="cursor-pointer hover:bg-primary hover:text-primary-foreground transition-colors text-[10px]">
+                            {agent.screen === 1 ? "GPU Engine" : agent.screen === 2 ? "RAG · Frontier" : agent.screen === 3 ? "Radar · Alerts" : "Orchestrator"}
                           </Badge>
                         </Link>
                       </td>

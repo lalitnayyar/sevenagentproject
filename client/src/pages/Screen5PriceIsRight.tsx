@@ -73,7 +73,7 @@ export default function Screen5PriceIsRight() {
   return (
     <div className="min-h-full">
       <PageHeader
-        badge="Screen 5"
+        badge="Grand Finale Arena"
         title="The Price Is Right — Finale"
         subtitle="Full autonomous deal-hunting pipeline: scan → estimate → notify. All 7 agents working together."
       >
