@@ -16,8 +16,8 @@ import Screen5PriceIsRight from "./pages/Screen5PriceIsRight";
 import Screen7TestScripts from "./pages/Screen7TestScripts";
 import Screen8Settings from "./pages/Screen8Settings";
 import NotFound from "./pages/NotFound";
-
 function Router() {
+  // make sure to consider if you need authentication for certain routes
   return (
     <AppLayout>
       <Switch>

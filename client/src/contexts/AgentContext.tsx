@@ -60,11 +60,16 @@ export interface AppSettings {
   openaiApiKey: string;
   anthropicApiKey: string;
   modalToken: string;
+  modalTokenId: string;
+  modalTokenSecret: string;
+  modalGpuType: string;
   hfToken: string;
   hfUser: string;
   pushoverUser: string;
   pushoverToken: string;
   chromaDbPath: string;
+  chromaCollection: string;
+  chromaPath: string;
   ollamaBaseUrl: string;
   preprocessorModel: string;
   dealThreshold: string;
@@ -75,6 +80,12 @@ export interface AppSettings {
   revision: string;
   gpu: string;
   deepseekApiKey: string;
+  scannerSubreddits: string;
+  scannerMinDiscount: string;
+  ensembleSpecialistWeight: string;
+  ensembleFrontierWeight: string;
+  ensembleRagWeight: string;
+  plannerMaxIterations: string;
 }
 
 interface AgentContextType {
@@ -100,11 +111,16 @@ const defaultSettings: AppSettings = {
   openaiApiKey: "",
   anthropicApiKey: "",
   modalToken: "",
+  modalTokenId: "",
+  modalTokenSecret: "",
+  modalGpuType: "T4",
   hfToken: "",
   hfUser: "ed-donner",
   pushoverUser: "",
   pushoverToken: "",
   chromaDbPath: "products_vectorstore",
+  chromaCollection: "products",
+  chromaPath: "./products_vectorstore",
   ollamaBaseUrl: "http://localhost:11434",
   preprocessorModel: "ollama/llama3.2",
   dealThreshold: "50",
@@ -115,6 +131,12 @@ const defaultSettings: AppSettings = {
   revision: "b19c8bfea3b6ff62237fbb0a8da9779fc12cefbd",
   gpu: "T4",
   deepseekApiKey: "",
+  scannerSubreddits: "deals,buildapc,frugalmalefashion",
+  scannerMinDiscount: "20",
+  ensembleSpecialistWeight: "0.4",
+  ensembleFrontierWeight: "0.3",
+  ensembleRagWeight: "0.3",
+  plannerMaxIterations: "10",
 };
 
 const initialAgents: AgentInfo[] = [
