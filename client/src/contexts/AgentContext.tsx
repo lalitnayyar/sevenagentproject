@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useState, useCallback, useRef, useEffect } from "react";
+import { trpc } from "@/lib/trpc";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 export type AgentStatus = "idle" | "running" | "active" | "error" | "stopped";
@@ -393,12 +394,24 @@ export function AgentProvider({ children }: { children: React.ReactNode }) {
   const [estimations, setEstimations] = useState<PriceEstimation[]>(sampleEstimations);
   const [globalLogs, setGlobalLogs] = useState<LogEntry[]>([]);
   const [isAllRunning, setIsAllRunning] = useState(false);
+
+  // Refs to latest state — avoids stale closures inside setInterval callbacks
+  const settingsRef = useRef<AppSettings>(defaultSettings);
+  const dealsRef = useRef<Deal[]>(sampleDeals);
+
+  // tRPC mutation for real Pushover delivery
+  const pushoverMutation = trpc.agents.sendPushoverNotification.useMutation();
+  // Keep settingsRef in sync with state so simulateAgentRun always reads fresh creds
   const [settings, setSettings] = useState<AppSettings>(() => {
     try {
       const saved = localStorage.getItem("agentSettings");
       return saved ? { ...defaultSettings, ...JSON.parse(saved) } : defaultSettings;
     } catch { return defaultSettings; }
   });
+
+  // Sync refs whenever state changes
+  useEffect(() => { settingsRef.current = settings; }, [settings]);
+  useEffect(() => { dealsRef.current = deals; }, [deals]);
 
   const timersRef = useRef<Map<string, ReturnType<typeof setInterval>>>(new Map());
 
@@ -426,10 +439,53 @@ export function AgentProvider({ children }: { children: React.ReactNode }) {
       { level: "success" as const, msg: "Agent completed" },
     ];
 
+    // Index of the "Push notification delivered" line in the messenger script
+    const PUSHOVER_DELIVER_MSG = "[MessagingAgent] Push notification delivered! 🔔 Sound: cashregister";
+
     let i = 0;
     const interval = setInterval(() => {
       if (i < messages.length) {
-        addLog(id, messages[i].level, messages[i].msg);
+        const entry = messages[i];
+        addLog(id, entry.level, entry.msg);
+
+        // When messenger reaches the delivery log line, fire the real Pushover API
+        if (id === "messenger" && entry.msg === PUSHOVER_DELIVER_MSG) {
+          const creds = settingsRef.current;
+          const userKey = creds.pushoverUser?.trim();
+          const token   = creds.pushoverToken?.trim();
+          if (userKey && token) {
+            // Pick the highest-discount deal from current deals list
+            const allDeals = dealsRef.current;
+            const best = allDeals.length > 0
+              ? [...allDeals].sort((a, b) => b.discount - a.discount)[0]
+              : null;
+            const dealMsg = best
+              ? `🔥 Deal Alert! ${best.product} is now only $${best.price.toFixed(2)} — estimated value $${best.estimate.toFixed(2)}. Save $${best.discount.toFixed(2)}!`
+              : "🔥 7-Agent Price Intelligence found a great deal — check your dashboard!";
+            pushoverMutation.mutate({
+              userKey,
+              token,
+              title: "7-Agent Price Intelligence",
+              message: dealMsg.slice(0, 512),
+              sound: "cashregister",
+              url: best?.url,
+            }, {
+              onSuccess: (result) => {
+                if (result.success) {
+                  addLog("messenger", "success", `[MessagingAgent] ✅ Real Pushover delivery confirmed — latency ${result.latency}ms`);
+                } else {
+                  addLog("messenger", "warn", `[MessagingAgent] ⚠️ Pushover returned error: ${result.message}`);
+                }
+              },
+              onError: (err) => {
+                addLog("messenger", "warn", `[MessagingAgent] ⚠️ Pushover request failed: ${err.message}`);
+              },
+            });
+          } else {
+            addLog("messenger", "warn", "[MessagingAgent] ⚠️ Pushover credentials not configured — skipping real delivery. Add them in Command Vault → Pushover tab.");
+          }
+        }
+
         i++;
       } else {
         clearInterval(interval);
@@ -452,7 +508,7 @@ export function AgentProvider({ children }: { children: React.ReactNode }) {
       }
     }, 550);
     timersRef.current.set(id, interval);
-  }, [addLog]);
+  }, [addLog, pushoverMutation]);
 
   const startAgent = useCallback((id: string) => {
     const existing = timersRef.current.get(id);
