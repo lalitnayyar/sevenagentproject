@@ -681,6 +681,16 @@ Bind for 0.0.0.0:3000 failed: port is already allocated
 
 ## Changelog
 
+### v2.3.0 — Deduplication Guard, Notification History & Grand Finale Auto-Notify
+
+| Change | Details |
+|---|---|
+| **1-hour deduplication guard** | A `localStorage` cache (`7agent_notified_deals`) stores the URL and timestamp of every deal that has been notified. Any deal whose URL was already sent within the last **60 minutes** is automatically skipped with a `Skipped (dedup)` status — preventing duplicate Pushover alerts when the scanner is re-run. |
+| **Notification history panel (Screen 3)** | A collapsible "Notification History" panel below the deal table shows the **last 10 auto-notifications** sent during the current session. Each row displays: timestamp, medal rank (🥇/🥈/🥉), product name, discount %, round-trip latency in ms, and status badge (Sent / Failed / Skipped). |
+| **Grand Finale Arena top-3 auto-notify (Screen 5)** | After the full 7-agent pipeline completes (~15 s), the Grand Finale Arena automatically sends the **top 3 deals by discount** to Pushover with a `🏆 Grand Finale` prefix. Notifications are staggered 1.2 s apart. A live counter badge shows progress and final count. |
+| **`dealsRef` stale-closure fix (Screen 5)** | The Grand Finale async handler reads deal state through a `useRef` kept in sync via `useEffect`. This guarantees the handler always sees the latest deals after the 12-second pipeline wait, regardless of React’s state-capture timing. |
+| **Credential fallback unchanged** | All auto-notify calls continue to use server-side `PUSHOVER_USER` / `PUSHOVER_TOKEN` env vars first; Command Vault (localStorage) credentials are used only as a secondary fallback. |
+
 ### v2.2.0 — Top-3 Auto-Notify on Scanner Agent Run
 
 | Change | Details |

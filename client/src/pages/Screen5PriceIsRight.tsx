@@ -1,15 +1,36 @@
-import { useState } from "react";
+import { useState, useRef, useEffect } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { PageHeader, LogTerminal } from "@/components/AgentCard";
 import { useAgents } from "@/contexts/AgentContext";
+import { trpc } from "@/lib/trpc";
 import { toast } from "sonner";
 import {
   ScatterChart, Scatter, XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer, Cell, LineChart, Line, Legend
 } from "recharts";
-import { Trophy, Play, RefreshCw, ExternalLink, Zap } from "lucide-react";
+import { Trophy, Play, RefreshCw, ExternalLink, Zap, Bell, CheckCircle2, Loader2 } from "lucide-react";
+
+// Dedup helpers shared with Screen3 (same localStorage key)
+const DEDUP_KEY = "7agent_notified_deals";
+const DEDUP_TTL_MS = 60 * 60 * 1000;
+type DedupEntry = { url: string; ts: number };
+function loadDedup(): DedupEntry[] {
+  try {
+    const raw = localStorage.getItem(DEDUP_KEY);
+    if (!raw) return [];
+    return (JSON.parse(raw) as DedupEntry[]).filter(e => Date.now() - e.ts < DEDUP_TTL_MS);
+  } catch { return []; }
+}
+function markNotified(url: string) {
+  const entries = loadDedup();
+  entries.push({ url, ts: Date.now() });
+  try { localStorage.setItem(DEDUP_KEY, JSON.stringify(entries)); } catch {}
+}
+function wasRecentlyNotified(url: string): boolean {
+  return loadDedup().some(e => e.url === url);
+}
 
 const CATEGORIES = ["Electronics", "Computers", "Appliances", "Automotive", "Musical_Instruments", "Cell_Phones", "Sports", "Home_Garden"];
 const CATEGORY_COLORS: Record<string, string> = {
@@ -41,18 +62,69 @@ const priceHistory = [
 ];
 
 export default function Screen5PriceIsRight() {
-  const { agents, startAgent, stopAgent, deals, estimations, startAllAgents, stopAllAgents, isAllRunning } = useAgents();
+  const { agents, startAgent, stopAgent, deals, estimations, startAllAgents, stopAllAgents, isAllRunning, settings } = useAgents();
   const [isLaunching, setIsLaunching] = useState(false);
   const [isRunning, setIsRunning] = useState(false);
   const [resetCount, setResetCount] = useState(0);
+  const [finaleNotified, setFinaleNotified] = useState(0);
+  const [finaleNotifying, setFinaleNotifying] = useState(false);
+
+  const autoNotify = trpc.agents.autoNotify.useMutation();
+
+  // Keep a ref so handleLaunch always reads the latest deals after the async wait
+  const dealsRef = useRef(deals);
+  useEffect(() => { dealsRef.current = deals; }, [deals]);
 
   const handleLaunch = async () => {
     setIsLaunching(true);
     setIsRunning(true);
+    setFinaleNotified(0);
     startAllAgents();
     toast.success("🎉 The Price Is Right — All agents launched!");
     await new Promise(r => setTimeout(r, 3000));
     setIsLaunching(false);
+
+    // ── Grand Finale: send top-3 deals via Pushover after pipeline completes ──
+    // Wait for agents to finish their simulation runs (~12s total)
+    await new Promise(r => setTimeout(r, 12000));
+    const medals = ["🥇 Grand Finale #1", "🥈 Grand Finale #2", "🥉 Grand Finale #3"];
+    // Use dealsRef.current so we get the latest deals state after the 12s wait
+    const top3 = [...dealsRef.current].sort((a, b) => b.discount - a.discount).slice(0, 3);
+    if (top3.length === 0) {
+      toast.info("No deals found yet — run Scanner Agent first to populate deals.");
+      return;
+    }
+
+    setFinaleNotifying(true);
+    let sent = 0;
+    for (let idx = 0; idx < top3.length; idx++) {
+      const deal = top3[idx];
+      if (idx > 0) await new Promise(r => setTimeout(r, 1200));
+      if (wasRecentlyNotified(deal.url)) {
+        toast.info(`${medals[idx]} skipped — already notified within 1 hour`);
+        continue;
+      }
+      const msg = `🏆 ${deal.product} — $${deal.price.toFixed(2)} (save $${deal.discount.toFixed(2)})`;
+      try {
+        const result = await autoNotify.mutateAsync({
+          title: `7-Agent ${medals[idx]}`,
+          message: msg.slice(0, 512),
+          sound: "cashregister",
+          url: deal.url,
+          userKey: settings.pushoverUser?.trim() || undefined,
+          token:   settings.pushoverToken?.trim() || undefined,
+        });
+        if (result.success) {
+          sent++;
+          setFinaleNotified(sent);
+          markNotified(deal.url);
+          toast.success(`🏆 ${medals[idx]} sent to Pushover!`, {
+            description: `${deal.product.slice(0, 45)}... • ${result.latency}ms`,
+          });
+        }
+      } catch { /* silent — pipeline already completed */ }
+    }
+    setFinaleNotifying(false);
   };
 
   const handleStop = () => {
@@ -126,6 +198,23 @@ export default function Screen5PriceIsRight() {
                 </Button>
               </div>
             </div>
+            {/* Grand Finale notification status */}
+            {(finaleNotifying || finaleNotified > 0) && (
+              <div className="mt-3 flex flex-wrap gap-2">
+                {finaleNotifying && (
+                  <div className="flex items-center gap-1.5 text-xs text-blue-700 bg-blue-50 border border-blue-200 rounded-full px-3 py-1">
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    Sending Grand Finale Pushover alerts...
+                  </div>
+                )}
+                {finaleNotified > 0 && (
+                  <div className="flex items-center gap-1.5 text-xs text-green-700 bg-green-50 border border-green-200 rounded-full px-3 py-1">
+                    <CheckCircle2 className="w-3.5 h-3.5" />
+                    🏆 {finaleNotified} of 3 Grand Finale deals sent to Pushover
+                  </div>
+                )}
+              </div>
+            )}
           </CardContent>
         </Card>
 

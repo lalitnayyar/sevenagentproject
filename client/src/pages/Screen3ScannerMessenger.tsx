@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -13,8 +13,69 @@ import { trpc } from "@/lib/trpc";
 import { toast } from "sonner";
 import {
   Rss, Bell, ExternalLink, DollarSign, TrendingDown,
-  Send, CheckCircle2, XCircle, Loader2, Zap, MessageSquare
+  Send, CheckCircle2, XCircle, Loader2, Zap, MessageSquare,
+  History, ChevronDown, ChevronUp, ShieldCheck
 } from "lucide-react";
+
+// ── Deduplication helpers ────────────────────────────────────────────────────
+const DEDUP_KEY = "7agent_notified_deals";
+const DEDUP_TTL_MS = 60 * 60 * 1000; // 1 hour
+
+type DedupEntry = { url: string; ts: number };
+
+function loadDedup(): DedupEntry[] {
+  try {
+    const raw = localStorage.getItem(DEDUP_KEY);
+    if (!raw) return [];
+    const entries: DedupEntry[] = JSON.parse(raw);
+    const now = Date.now();
+    return entries.filter(e => now - e.ts < DEDUP_TTL_MS);
+  } catch { return []; }
+}
+
+function saveDedup(entries: DedupEntry[]) {
+  try { localStorage.setItem(DEDUP_KEY, JSON.stringify(entries)); } catch {}
+}
+
+function markNotified(url: string) {
+  const entries = loadDedup();
+  entries.push({ url, ts: Date.now() });
+  saveDedup(entries);
+}
+
+function wasRecentlyNotified(url: string): boolean {
+  return loadDedup().some(e => e.url === url);
+}
+
+// ── Notification history helpers ─────────────────────────────────────────────
+const HISTORY_KEY = "7agent_notify_history";
+const MAX_HISTORY = 10;
+
+type HistoryEntry = {
+  id: string;
+  ts: string;
+  medal: string;
+  product: string;
+  discount: number;
+  latency: number;
+  success: boolean;
+  skipped?: boolean;
+};
+
+function loadHistory(): HistoryEntry[] {
+  try {
+    const raw = localStorage.getItem(HISTORY_KEY);
+    return raw ? JSON.parse(raw) : [];
+  } catch { return []; }
+}
+
+function appendHistory(entry: HistoryEntry) {
+  try {
+    const entries = loadHistory();
+    entries.unshift(entry);
+    localStorage.setItem(HISTORY_KEY, JSON.stringify(entries.slice(0, MAX_HISTORY)));
+  } catch {}
+}
 
 const RSS_FEEDS = [
   { url: "dealnews.com/c142", category: "Electronics", color: "bg-blue-100 text-blue-700" },
@@ -61,6 +122,15 @@ export default function Screen3ScannerMessenger() {
   const [autoNotifying, setAutoNotifying] = useState(false);
   const [notifiedCount, setNotifiedCount] = useState(0);
 
+  // Notification history panel state
+  const [history, setHistory] = useState<HistoryEntry[]>(() => loadHistory());
+  const [historyOpen, setHistoryOpen] = useState(false);
+
+  // Refresh history from localStorage when panel opens
+  useEffect(() => {
+    if (historyOpen) setHistory(loadHistory());
+  }, [historyOpen]);
+
   const handleScan = async () => {
     setScanning(true);
     setNotifiedCount(0);
@@ -95,6 +165,25 @@ export default function Screen3ScannerMessenger() {
     for (let idx = 0; idx < top3.length; idx++) {
       const deal = top3[idx];
       if (idx > 0) await new Promise(r => setTimeout(r, 1200)); // stagger 1.2s apart
+
+      // ── Deduplication guard: skip if this URL was notified within the last hour ──
+      if (wasRecentlyNotified(deal.url)) {
+        toast.info(`${medals[idx]} skipped — already notified within 1 hour`, {
+          description: deal.product.slice(0, 50),
+        });
+        appendHistory({
+          id: `${Date.now()}-${idx}`,
+          ts: new Date().toLocaleTimeString(),
+          medal: medals[idx],
+          product: deal.product,
+          discount: deal.discount,
+          latency: 0,
+          success: false,
+          skipped: true,
+        });
+        continue;
+      }
+
       const msg = `${deal.product} — now $${deal.price.toFixed(2)} (save $${deal.discount.toFixed(2)})`;
       try {
         // autoNotify reads PUSHOVER_USER/TOKEN from server env vars first.
@@ -110,13 +199,44 @@ export default function Screen3ScannerMessenger() {
         if (result.success) {
           sent++;
           setNotifiedCount(sent);
+          markNotified(deal.url); // record in dedup cache
+          appendHistory({
+            id: `${Date.now()}-${idx}`,
+            ts: new Date().toLocaleTimeString(),
+            medal: medals[idx],
+            product: deal.product,
+            discount: deal.discount,
+            latency: result.latency,
+            success: true,
+          });
+          setHistory(loadHistory());
           toast.success(`${medals[idx]} sent to Pushover! 🔔`, {
             description: `${deal.product.slice(0, 40)}... • ${result.latency}ms`,
           });
         } else {
+          appendHistory({
+            id: `${Date.now()}-${idx}`,
+            ts: new Date().toLocaleTimeString(),
+            medal: medals[idx],
+            product: deal.product,
+            discount: deal.discount,
+            latency: 0,
+            success: false,
+          });
+          setHistory(loadHistory());
           toast.error(`Notification #${idx + 1} failed`, { description: result.message });
         }
       } catch (err) {
+        appendHistory({
+          id: `${Date.now()}-${idx}`,
+          ts: new Date().toLocaleTimeString(),
+          medal: medals[idx],
+          product: deal.product,
+          discount: deal.discount,
+          latency: 0,
+          success: false,
+        });
+        setHistory(loadHistory());
         toast.error(`Notification #${idx + 1} error`, {
           description: err instanceof Error ? err.message : "Unknown error",
         });
@@ -330,6 +450,75 @@ export default function Screen3ScannerMessenger() {
             </div>
           </CardContent>
         </Card>
+
+        {/* Notification History Panel */}
+        {history.length > 0 && (
+          <Card>
+            <CardHeader className="pb-2">
+              <button
+                className="flex items-center gap-2 w-full text-left"
+                onClick={() => setHistoryOpen(o => !o)}
+              >
+                <History className="w-4 h-4 text-purple-500" />
+                <CardTitle className="text-base flex-1">
+                  Notification History
+                  <Badge variant="secondary" className="ml-2">{history.length}</Badge>
+                </CardTitle>
+                {historyOpen ? <ChevronUp className="w-4 h-4 text-muted-foreground" /> : <ChevronDown className="w-4 h-4 text-muted-foreground" />}
+              </button>
+            </CardHeader>
+            {historyOpen && (
+              <CardContent>
+                <div className="text-xs text-muted-foreground mb-2 flex items-center gap-1.5">
+                  <ShieldCheck className="w-3.5 h-3.5 text-blue-500" />
+                  Deals already notified within the last hour are automatically skipped (dedup guard active)
+                </div>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-xs">
+                    <thead>
+                      <tr className="border-b border-border">
+                        <th className="text-left py-1.5 px-2 font-semibold text-muted-foreground">Time</th>
+                        <th className="text-left py-1.5 px-2 font-semibold text-muted-foreground">Rank</th>
+                        <th className="text-left py-1.5 px-2 font-semibold text-muted-foreground">Product</th>
+                        <th className="text-right py-1.5 px-2 font-semibold text-muted-foreground">Discount</th>
+                        <th className="text-right py-1.5 px-2 font-semibold text-muted-foreground">Latency</th>
+                        <th className="text-center py-1.5 px-2 font-semibold text-muted-foreground">Status</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {history.map(h => (
+                        <tr key={h.id} className="border-b border-border/40 hover:bg-muted/20">
+                          <td className="py-1.5 px-2 font-mono text-muted-foreground">{h.ts}</td>
+                          <td className="py-1.5 px-2">{h.medal}</td>
+                          <td className="py-1.5 px-2 max-w-[200px] truncate">{h.product}</td>
+                          <td className="py-1.5 px-2 text-right font-bold text-green-600">${h.discount.toFixed(0)}</td>
+                          <td className="py-1.5 px-2 text-right font-mono text-muted-foreground">
+                            {h.latency > 0 ? `${h.latency}ms` : "—"}
+                          </td>
+                          <td className="py-1.5 px-2 text-center">
+                            {h.skipped ? (
+                              <span className="inline-flex items-center gap-1 text-amber-600 bg-amber-50 border border-amber-200 rounded-full px-2 py-0.5">
+                                <ShieldCheck className="w-3 h-3" /> Skipped
+                              </span>
+                            ) : h.success ? (
+                              <span className="inline-flex items-center gap-1 text-green-600 bg-green-50 border border-green-200 rounded-full px-2 py-0.5">
+                                <CheckCircle2 className="w-3 h-3" /> Sent
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center gap-1 text-red-600 bg-red-50 border border-red-200 rounded-full px-2 py-0.5">
+                                <XCircle className="w-3 h-3" /> Failed
+                              </span>
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </CardContent>
+            )}
+          </Card>
+        )}
 
         {/* Agent Controls */}
         <Tabs defaultValue="scanner">
