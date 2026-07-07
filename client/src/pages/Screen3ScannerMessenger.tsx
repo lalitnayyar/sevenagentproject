@@ -61,52 +61,51 @@ export default function Screen3ScannerMessenger() {
   const [autoNotifying, setAutoNotifying] = useState(false);
   const [notifiedCount, setNotifiedCount] = useState(0);
 
-  // Stable ref so async callbacks always call the latest mutation instance
-  const autoNotifyRef = useRef(autoNotify);
-  useEffect(() => { autoNotifyRef.current = autoNotify; }, [autoNotify]);
+  const handleScan = async () => {
+    setScanning(true);
+    setNotifiedCount(0);
+    startAgent("scanner");
+    await new Promise(r => setTimeout(r, 8000));
 
-  // Helper: send top-N deals as Pushover notifications (staggered)
-  const sendTopDealsNotifications = useCallback(async (dealsSnapshot: Deal[]) => {
+    // Add a fresh deal from this scan run
+    const newDeal = {
+      product: "Sony WH-1000XM5 Wireless Noise Canceling Headphones",
+      price: 199,
+      estimate: 349.99,
+      discount: 150.99,
+      url: "https://www.dealnews.com/Sony-WH-1000XM5",
+    };
+    addDeal(newDeal);
+    setScanning(false);
+
+    // ── Auto-notify top 3 deals via Pushover ────────────────────────────────
+    // Build snapshot directly — include new deal + existing deals sorted by discount
+    const allDeals: Deal[] = [
+      { ...newDeal, id: `scan-${Date.now()}`, timestamp: new Date().toISOString() },
+      ...deals,
+    ];
     const medals = ["🥇 Deal #1", "🥈 Deal #2", "🥉 Deal #3"];
-    const top3 = [...dealsSnapshot]
-      .sort((a, b) => b.discount - a.discount)
-      .slice(0, 3);
+    const top3 = [...allDeals].sort((a, b) => b.discount - a.discount).slice(0, 3);
 
-    if (top3.length === 0) {
-      toast.error("No deals to notify — run scanner first");
-      return;
-    }
-
-    // Read Pushover credentials from settings (Command Vault) as client-side fallback
-    // Server will prefer env vars (PUSHOVER_USER/TOKEN) if set; these are used when env vars are empty
-    const pushoverUserKey = settings.pushoverUser?.trim() || "";
-    const pushoverToken   = settings.pushoverToken?.trim() || "";
-
-    if (!pushoverUserKey && !pushoverToken) {
-      // Check env vars are also empty — warn user
-      toast.warning("Pushover credentials not found", {
-        description: "Go to Command Vault → Pushover tab and save your User Key and App Token first.",
-        duration: 6000,
-      });
-    }
-
+    toast.success(`Scanner found ${allDeals.length} deals! Sending top-3 Pushover alerts...`);
     setAutoNotifying(true);
     setNotifiedCount(0);
     let sent = 0;
 
     for (let idx = 0; idx < top3.length; idx++) {
       const deal = top3[idx];
-      if (idx > 0) await new Promise(r => setTimeout(r, 1200)); // stagger 1.2s
+      if (idx > 0) await new Promise(r => setTimeout(r, 1200)); // stagger 1.2s apart
       const msg = `${deal.product} — now $${deal.price.toFixed(2)} (save $${deal.discount.toFixed(2)})`;
       try {
-        const result = await autoNotifyRef.current.mutateAsync({
+        // autoNotify reads PUSHOVER_USER/TOKEN from server env vars first.
+        // Pass settings as fallback in case env vars are not set in this deployment.
+        const result = await autoNotify.mutateAsync({
           title: `7-Agent ${medals[idx]}`,
           message: msg.slice(0, 512),
           sound: "cashregister",
           url: deal.url,
-          // Pass settings credentials as fallback — server uses env vars first, then these
-          userKey: pushoverUserKey || undefined,
-          token:   pushoverToken   || undefined,
+          userKey: settings.pushoverUser?.trim() || undefined,
+          token:   settings.pushoverToken?.trim() || undefined,
         });
         if (result.success) {
           sent++;
@@ -124,35 +123,6 @@ export default function Screen3ScannerMessenger() {
       }
     }
     setAutoNotifying(false);
-  }, [settings]); // re-create when settings change so credentials are always fresh
-
-  const handleScan = async () => {
-    setScanning(true);
-    setNotifiedCount(0);
-    startAgent("scanner");
-    await new Promise(r => setTimeout(r, 8000));
-
-    // Add a fresh deal from this scan run
-    const newDeal = {
-      product: "Sony WH-1000XM5 Wireless Noise Canceling Headphones",
-      price: 199,
-      estimate: 349.99,
-      discount: 150.99,
-      url: "https://www.dealnews.com/Sony-WH-1000XM5",
-    };
-    addDeal(newDeal);
-
-    toast.success("Scanner found new deals! Sending top-3 Pushover alerts...");
-    setScanning(false);
-
-    // Build snapshot directly — don't wait for React state update
-    // Include the new deal plus all existing deals, then sort by discount
-    const dealsSnapshot: Deal[] = [
-      { ...newDeal, id: `scan-${Date.now()}`, timestamp: new Date().toISOString() },
-      ...deals,
-    ];
-    // Fire notifications immediately with the snapshot (no useEffect, no state timing)
-    sendTopDealsNotifications(dealsSnapshot);
   };
 
   const openNotifyDialog = (deal: Deal) => {
