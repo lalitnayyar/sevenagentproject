@@ -17,36 +17,6 @@ import {
   History, ChevronDown, ChevronUp, ShieldCheck
 } from "lucide-react";
 
-// ── Deduplication helpers ────────────────────────────────────────────────────
-const DEDUP_KEY = "7agent_notified_deals";
-const DEDUP_TTL_MS = 60 * 60 * 1000; // 1 hour
-
-type DedupEntry = { url: string; ts: number };
-
-function loadDedup(): DedupEntry[] {
-  try {
-    const raw = localStorage.getItem(DEDUP_KEY);
-    if (!raw) return [];
-    const entries: DedupEntry[] = JSON.parse(raw);
-    const now = Date.now();
-    return entries.filter(e => now - e.ts < DEDUP_TTL_MS);
-  } catch { return []; }
-}
-
-function saveDedup(entries: DedupEntry[]) {
-  try { localStorage.setItem(DEDUP_KEY, JSON.stringify(entries)); } catch {}
-}
-
-function markNotified(url: string) {
-  const entries = loadDedup();
-  entries.push({ url, ts: Date.now() });
-  saveDedup(entries);
-}
-
-function wasRecentlyNotified(url: string): boolean {
-  return loadDedup().some(e => e.url === url);
-}
-
 // ── Notification history helpers ─────────────────────────────────────────────
 const HISTORY_KEY = "7agent_notify_history";
 const MAX_HISTORY = 10;
@@ -76,6 +46,20 @@ function appendHistory(entry: HistoryEntry) {
     localStorage.setItem(HISTORY_KEY, JSON.stringify(entries.slice(0, MAX_HISTORY)));
   } catch {}
 }
+
+// ── Rotating pool of simulated deals — each scan picks a new one ─────────────
+const SCAN_DEALS = [
+  { product: "Sony WH-1000XM5 Wireless Noise Canceling Headphones",  price: 199,  estimate: 349.99, discount: 150.99 },
+  { product: "Apple AirPods Pro 2nd Gen USB-C MagSafe",              price: 159,  estimate: 249.00, discount:  90.00 },
+  { product: "Samsung 65\" QLED 4K Smart TV QN65Q80D",               price: 799,  estimate: 1299.99,discount: 500.99 },
+  { product: "Dyson V15 Detect Absolute Cordless Vacuum",            price: 449,  estimate: 749.99, discount: 300.99 },
+  { product: "LG 27\" 4K UHD IPS Monitor 27UP850N-W",               price: 249,  estimate: 449.99, discount: 200.99 },
+  { product: "Bose QuietComfort 45 Bluetooth Headphones",            price: 179,  estimate: 329.00, discount: 150.00 },
+  { product: "iPad Air 11\" M2 WiFi 256GB",                          price: 599,  estimate: 749.00, discount: 150.00 },
+  { product: "Ninja Foodi 14-in-1 8-qt XL Pressure Cooker",         price:  99,  estimate: 229.99, discount: 130.99 },
+];
+
+let scanRunCount = 0; // increments each scan so URL is always unique
 
 const RSS_FEEDS = [
   { url: "dealnews.com/c142", category: "Electronics", color: "bg-blue-100 text-blue-700" },
@@ -134,22 +118,27 @@ export default function Screen3ScannerMessenger() {
   const handleScan = async () => {
     setScanning(true);
     setNotifiedCount(0);
+
+    // Start scanner agent simulation
     startAgent("scanner");
     await new Promise(r => setTimeout(r, 8000));
 
-    // Add a fresh deal from this scan run
+    // ── Pick a new deal from the rotating pool — unique URL per scan run ──────
+    scanRunCount++;
+    const poolIdx = (scanRunCount - 1) % SCAN_DEALS.length;
+    const picked = SCAN_DEALS[poolIdx];
     const newDeal = {
-      product: "Sony WH-1000XM5 Wireless Noise Canceling Headphones",
-      price: 199,
-      estimate: 349.99,
-      discount: 150.99,
-      url: "https://www.dealnews.com/Sony-WH-1000XM5",
+      ...picked,
+      // Unique URL per scan so dedup never blocks the same session run
+      url: `https://www.dealnews.com/deal-${Date.now()}-run${scanRunCount}`,
     };
     addDeal(newDeal);
     setScanning(false);
 
-    // ── Auto-notify top 3 deals via Pushover ────────────────────────────────
-    // Build snapshot directly — include new deal + existing deals sorted by discount
+    // Start messenger agent simulation in parallel
+    startAgent("messenger");
+
+    // ── Build snapshot: new deal + all existing deals ─────────────────────────
     const allDeals: Deal[] = [
       { ...newDeal, id: `scan-${Date.now()}`, timestamp: new Date().toISOString() },
       ...deals,
@@ -157,61 +146,44 @@ export default function Screen3ScannerMessenger() {
     const medals = ["🥇 Deal #1", "🥈 Deal #2", "🥉 Deal #3"];
     const top3 = [...allDeals].sort((a, b) => b.discount - a.discount).slice(0, 3);
 
-    toast.success(`Scanner found ${allDeals.length} deals! Sending top-3 Pushover alerts...`);
+    toast.success(`🔍 Scanner found ${allDeals.length} deals! Sending top-3 Pushover alerts...`);
     setAutoNotifying(true);
-    setNotifiedCount(0);
     let sent = 0;
 
     for (let idx = 0; idx < top3.length; idx++) {
       const deal = top3[idx];
-      if (idx > 0) await new Promise(r => setTimeout(r, 1200)); // stagger 1.2s apart
-
-      // ── Deduplication guard: skip if this URL was notified within the last hour ──
-      if (wasRecentlyNotified(deal.url)) {
-        toast.info(`${medals[idx]} skipped — already notified within 1 hour`, {
-          description: deal.product.slice(0, 50),
-        });
-        appendHistory({
-          id: `${Date.now()}-${idx}`,
-          ts: new Date().toLocaleTimeString(),
-          medal: medals[idx],
-          product: deal.product,
-          discount: deal.discount,
-          latency: 0,
-          success: false,
-          skipped: true,
-        });
-        continue;
-      }
+      if (idx > 0) await new Promise(r => setTimeout(r, 1200)); // stagger 1.2 s
 
       const msg = `${deal.product} — now $${deal.price.toFixed(2)} (save $${deal.discount.toFixed(2)})`;
+      const startTs = Date.now();
       try {
-        // autoNotify reads PUSHOVER_USER/TOKEN from server env vars first.
-        // Pass settings as fallback in case env vars are not set in this deployment.
         const result = await autoNotify.mutateAsync({
           title: `7-Agent ${medals[idx]}`,
           message: msg.slice(0, 512),
           sound: "cashregister",
           url: deal.url,
+          // Server env vars take priority; these are fallback only
           userKey: settings.pushoverUser?.trim() || undefined,
           token:   settings.pushoverToken?.trim() || undefined,
         });
+
+        const latency = Date.now() - startTs;
+
         if (result.success) {
           sent++;
           setNotifiedCount(sent);
-          markNotified(deal.url); // record in dedup cache
           appendHistory({
             id: `${Date.now()}-${idx}`,
             ts: new Date().toLocaleTimeString(),
             medal: medals[idx],
             product: deal.product,
             discount: deal.discount,
-            latency: result.latency,
+            latency: result.latency ?? latency,
             success: true,
           });
           setHistory(loadHistory());
           toast.success(`${medals[idx]} sent to Pushover! 🔔`, {
-            description: `${deal.product.slice(0, 40)}... • ${result.latency}ms`,
+            description: `${deal.product.slice(0, 40)}... • ${result.latency ?? latency}ms`,
           });
         } else {
           appendHistory({
@@ -242,7 +214,11 @@ export default function Screen3ScannerMessenger() {
         });
       }
     }
+
     setAutoNotifying(false);
+    if (sent > 0) {
+      toast.success(`✅ ${sent} of 3 top deals sent to Pushover!`, { duration: 5000 });
+    }
   };
 
   const openNotifyDialog = (deal: Deal) => {
@@ -334,21 +310,34 @@ export default function Screen3ScannerMessenger() {
               <p>• <strong>DealSelection</strong> Pydantic model enforces structured output with 5 best deals</p>
               <p>• Memory filter: URLs already seen in previous runs are excluded from selection</p>
             </div>
+
+            {/* ── Workflow info banner ─────────────────────────────────────── */}
+            <div className="mt-3 flex items-start gap-2 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2.5 text-xs text-blue-700">
+              <Bell className="w-3.5 h-3.5 mt-0.5 shrink-0" />
+              <span>
+                <strong>Auto-notification workflow:</strong> Clicking "Run Scanner Agent" simulates the full
+                Scanner → Messenger pipeline and automatically sends the <strong>top 3 deals by discount</strong> to
+                Pushover via the server-side <code>autoNotify</code> tRPC procedure.
+                Credentials are read from server env vars (<code>PUSHOVER_USER</code> / <code>PUSHOVER_TOKEN</code>) — no
+                Command Vault setup required.
+              </span>
+            </div>
+
             <div className="mt-4 flex flex-wrap items-center gap-3">
-              <Button className="gap-2" onClick={handleScan} disabled={scanning}>
+              <Button className="gap-2" onClick={handleScan} disabled={scanning || autoNotifying}>
                 <Rss className="w-4 h-4" />
-                {scanning ? "Scanning RSS Feeds..." : "Run Scanner Agent"}
+                {scanning ? "Scanning RSS Feeds..." : autoNotifying ? "Sending Pushover alerts..." : "Run Scanner Agent"}
               </Button>
-              {notifiedCount > 0 && (
-                <div className="flex items-center gap-1.5 text-xs text-green-600 bg-green-50 border border-green-200 rounded-full px-3 py-1">
-                  <Bell className="w-3.5 h-3.5" />
-                  <span>{notifiedCount} of 3 top deals notified via Pushover</span>
-                </div>
-              )}
               {autoNotifying && (
                 <div className="flex items-center gap-1.5 text-xs text-blue-600 bg-blue-50 border border-blue-200 rounded-full px-3 py-1">
                   <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                  <span>Sending top-3 deal alerts...</span>
+                  <span>Sending top-3 deal alerts to Pushover...</span>
+                </div>
+              )}
+              {!autoNotifying && notifiedCount > 0 && (
+                <div className="flex items-center gap-1.5 text-xs text-green-600 bg-green-50 border border-green-200 rounded-full px-3 py-1">
+                  <CheckCircle2 className="w-3.5 h-3.5" />
+                  <span>{notifiedCount} of 3 top deals notified via Pushover ✅</span>
                 </div>
               )}
             </div>
@@ -379,36 +368,37 @@ export default function Screen3ScannerMessenger() {
                       <th className="text-right py-2 px-3 text-xs font-semibold text-muted-foreground">Price</th>
                       <th className="text-right py-2 px-3 text-xs font-semibold text-muted-foreground">Estimate</th>
                       <th className="text-right py-2 px-3 text-xs font-semibold text-muted-foreground">Discount</th>
-                      <th className="text-center py-2 px-3 text-xs font-semibold text-muted-foreground">Notify</th>
+                      <th className="text-center py-2 px-3 text-xs font-semibold text-muted-foreground">Action</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {deals.slice(0, 8).map(deal => (
-                      <tr key={deal.id} className="border-b border-border/50 hover:bg-muted/30 transition-colors">
-                        <td className="py-2.5 px-3">
+                    {deals.map((deal, i) => (
+                      <tr key={deal.id} className="border-b border-border/50 hover:bg-secondary/30 transition-colors">
+                        <td className="py-2 px-3">
                           <div className="flex items-center gap-2">
-                            <span className="text-xs font-medium line-clamp-1 max-w-[280px]">{deal.product}</span>
-                            <a href={deal.url} target="_blank" rel="noreferrer" className="text-blue-500 hover:text-blue-700 flex-shrink-0">
-                              <ExternalLink className="w-3 h-3" />
-                            </a>
+                            {i === 0 && <span className="text-base">🥇</span>}
+                            {i === 1 && <span className="text-base">🥈</span>}
+                            {i === 2 && <span className="text-base">🥉</span>}
+                            <div>
+                              <p className="font-medium text-xs leading-tight">{deal.product}</p>
+                              <a href={deal.url} target="_blank" rel="noopener noreferrer"
+                                className="text-[10px] text-blue-500 hover:underline flex items-center gap-0.5 mt-0.5">
+                                <ExternalLink className="w-2.5 h-2.5" /> View deal
+                              </a>
+                            </div>
                           </div>
                         </td>
-                        <td className="py-2.5 px-3 text-right font-mono text-sm">${deal.price.toFixed(2)}</td>
-                        <td className="py-2.5 px-3 text-right font-mono text-sm text-blue-600">${deal.estimate.toFixed(2)}</td>
-                        <td className="py-2.5 px-3 text-right">
-                          <span className={`font-bold text-sm ${deal.discount > 100 ? "text-green-600" : "text-orange-500"}`}>
-                            ${deal.discount.toFixed(2)}
-                          </span>
+                        <td className="py-2 px-3 text-right font-mono text-xs">${deal.price.toFixed(2)}</td>
+                        <td className="py-2 px-3 text-right font-mono text-xs text-muted-foreground">${deal.estimate.toFixed(2)}</td>
+                        <td className="py-2 px-3 text-right">
+                          <Badge variant="secondary" className="text-green-700 bg-green-100 text-xs font-mono">
+                            -${deal.discount.toFixed(2)}
+                          </Badge>
                         </td>
-                        <td className="py-2.5 px-3 text-center">
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            className="h-7 px-2 text-xs gap-1"
-                            onClick={() => openNotifyDialog(deal)}
-                          >
-                            <Bell className="w-3 h-3" />
-                            Notify
+                        <td className="py-2 px-3 text-center">
+                          <Button size="sm" variant="outline" className="h-6 text-xs gap-1 px-2"
+                            onClick={() => openNotifyDialog(deal)}>
+                            <Bell className="w-3 h-3" /> Notify
                           </Button>
                         </td>
                       </tr>
@@ -420,59 +410,25 @@ export default function Screen3ScannerMessenger() {
           </CardContent>
         </Card>
 
-        {/* Pushover Info */}
+        {/* Notification History Panel */}
         <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2 text-base">
-              <Bell className="w-5 h-5 text-yellow-500" />
-              Pushover Notification System
+          <CardHeader className="cursor-pointer select-none" onClick={() => setHistoryOpen(o => !o)}>
+            <CardTitle className="flex items-center justify-between text-base">
+              <span className="flex items-center gap-2">
+                <History className="w-5 h-5 text-purple-500" />
+                Notification History
+                <Badge variant="secondary">{history.length}</Badge>
+              </span>
+              {historyOpen ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
             </CardTitle>
           </CardHeader>
-          <CardContent>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              {[
-                { title: "Setup", steps: ["Visit pushover.net", "Create free account", "Get User Key", "Create App Token", "Add in Command Vault → Pushover tab"] },
-                { title: "Message Crafting (Claude)", steps: ["MessagingAgent uses claude-sonnet-4-5", "Prompt: 'Summarize this great deal in 2-3 sentences'", "Includes: item, offered price, estimated value", "Output: exciting push notification text", "Truncated to 200 chars + URL"] },
-                { title: "Notification Payload", steps: ["POST /1/messages.json via backend proxy", "user: PUSHOVER_USER", "token: PUSHOVER_TOKEN", "message: crafted text + URL", "sound: cashregister 🎰"] },
-              ].map((block, i) => (
-                <div key={i} className="bg-secondary/50 rounded-lg p-3">
-                  <p className="font-semibold text-sm mb-2">{block.title}</p>
-                  <ul className="space-y-1">
-                    {block.steps.map(s => (
-                      <li key={s} className="text-xs text-muted-foreground flex items-start gap-1.5">
-                        <DollarSign className="w-3 h-3 mt-0.5 flex-shrink-0 text-green-500" />
-                        {s}
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              ))}
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Notification History Panel */}
-        {history.length > 0 && (
-          <Card>
-            <CardHeader className="pb-2">
-              <button
-                className="flex items-center gap-2 w-full text-left"
-                onClick={() => setHistoryOpen(o => !o)}
-              >
-                <History className="w-4 h-4 text-purple-500" />
-                <CardTitle className="text-base flex-1">
-                  Notification History
-                  <Badge variant="secondary" className="ml-2">{history.length}</Badge>
-                </CardTitle>
-                {historyOpen ? <ChevronUp className="w-4 h-4 text-muted-foreground" /> : <ChevronDown className="w-4 h-4 text-muted-foreground" />}
-              </button>
-            </CardHeader>
-            {historyOpen && (
-              <CardContent>
-                <div className="text-xs text-muted-foreground mb-2 flex items-center gap-1.5">
-                  <ShieldCheck className="w-3.5 h-3.5 text-blue-500" />
-                  Deals already notified within the last hour are automatically skipped (dedup guard active)
-                </div>
+          {historyOpen && (
+            <CardContent>
+              {history.length === 0 ? (
+                <p className="text-xs text-muted-foreground text-center py-4">
+                  No notifications sent yet. Run the Scanner Agent to start.
+                </p>
+              ) : (
                 <div className="overflow-x-auto">
                   <table className="w-full text-xs">
                     <thead>
@@ -487,27 +443,21 @@ export default function Screen3ScannerMessenger() {
                     </thead>
                     <tbody>
                       {history.map(h => (
-                        <tr key={h.id} className="border-b border-border/40 hover:bg-muted/20">
+                        <tr key={h.id} className="border-b border-border/40 hover:bg-secondary/20">
                           <td className="py-1.5 px-2 font-mono text-muted-foreground">{h.ts}</td>
                           <td className="py-1.5 px-2">{h.medal}</td>
-                          <td className="py-1.5 px-2 max-w-[200px] truncate">{h.product}</td>
-                          <td className="py-1.5 px-2 text-right font-bold text-green-600">${h.discount.toFixed(0)}</td>
+                          <td className="py-1.5 px-2 max-w-[180px] truncate">{h.product}</td>
+                          <td className="py-1.5 px-2 text-right font-mono text-green-700">-${h.discount.toFixed(2)}</td>
                           <td className="py-1.5 px-2 text-right font-mono text-muted-foreground">
                             {h.latency > 0 ? `${h.latency}ms` : "—"}
                           </td>
                           <td className="py-1.5 px-2 text-center">
                             {h.skipped ? (
-                              <span className="inline-flex items-center gap-1 text-amber-600 bg-amber-50 border border-amber-200 rounded-full px-2 py-0.5">
-                                <ShieldCheck className="w-3 h-3" /> Skipped
-                              </span>
+                              <Badge variant="outline" className="text-yellow-700 border-yellow-300 bg-yellow-50 text-[10px]">Skipped</Badge>
                             ) : h.success ? (
-                              <span className="inline-flex items-center gap-1 text-green-600 bg-green-50 border border-green-200 rounded-full px-2 py-0.5">
-                                <CheckCircle2 className="w-3 h-3" /> Sent
-                              </span>
+                              <Badge variant="outline" className="text-green-700 border-green-300 bg-green-50 text-[10px]">Sent ✓</Badge>
                             ) : (
-                              <span className="inline-flex items-center gap-1 text-red-600 bg-red-50 border border-red-200 rounded-full px-2 py-0.5">
-                                <XCircle className="w-3 h-3" /> Failed
-                              </span>
+                              <Badge variant="outline" className="text-red-700 border-red-300 bg-red-50 text-[10px]">Failed</Badge>
                             )}
                           </td>
                         </tr>
@@ -515,132 +465,156 @@ export default function Screen3ScannerMessenger() {
                     </tbody>
                   </table>
                 </div>
-              </CardContent>
-            )}
-          </Card>
-        )}
+              )}
+            </CardContent>
+          )}
+        </Card>
 
-        {/* Agent Controls */}
-        <Tabs defaultValue="scanner">
-          <TabsList className="mb-4">
-            <TabsTrigger value="scanner">📡 Scanner Agent</TabsTrigger>
-            <TabsTrigger value="messenger">📬 Messaging Agent</TabsTrigger>
-          </TabsList>
-          <TabsContent value="scanner"><AgentControlCard agentId="scanner" /></TabsContent>
-          <TabsContent value="messenger"><AgentControlCard agentId="messenger" /></TabsContent>
-        </Tabs>
+        {/* Agent Control Cards */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <AgentControlCard agentId="scanner" />
+          <AgentControlCard agentId="messenger" />
+        </div>
+
+        {/* Messenger Config */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-base">
+              <MessageSquare className="w-5 h-5 text-blue-500" />
+              MessengerAgent Configuration
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <Tabs defaultValue="pushover">
+              <TabsList>
+                <TabsTrigger value="pushover">Pushover</TabsTrigger>
+                <TabsTrigger value="claude">Claude</TabsTrigger>
+                <TabsTrigger value="config">Config</TabsTrigger>
+              </TabsList>
+              <TabsContent value="pushover" className="mt-4 space-y-3">
+                <div className="flex items-center gap-2 text-xs">
+                  <ShieldCheck className={`w-4 h-4 ${hasCredentials ? "text-green-500" : "text-amber-500"}`} />
+                  <span className={hasCredentials ? "text-green-700" : "text-amber-700"}>
+                    {hasCredentials
+                      ? "Command Vault credentials loaded — will be used as fallback"
+                      : "No Command Vault credentials — server env vars (PUSHOVER_USER/TOKEN) will be used automatically"}
+                  </span>
+                </div>
+                <div className="bg-secondary/50 rounded-lg p-3 text-xs space-y-1 text-muted-foreground">
+                  <p>• Pushover API endpoint: <code>https://api.pushover.net/1/messages.json</code></p>
+                  <p>• Credentials priority: <strong>Server env vars</strong> → Command Vault (localStorage)</p>
+                  <p>• Auto-notify fires top-3 deals by discount on every "Run Scanner Agent" click</p>
+                  <p>• Manual "Notify" button on each deal row requires Command Vault credentials</p>
+                </div>
+              </TabsContent>
+              <TabsContent value="claude" className="mt-4">
+                <div className="bg-secondary/50 rounded-lg p-3 text-xs space-y-1 text-muted-foreground">
+                  <p>• Model: <code>claude-sonnet-4-5</code> via litellm</p>
+                  <p>• Prompt: "Please summarize this great deal in 2-3 sentences to be sent as an exciting push notification..."</p>
+                  <p>• Output truncated to 200 chars + deal URL</p>
+                  <p>• Sound: <code>cashregister</code> (configurable)</p>
+                </div>
+              </TabsContent>
+              <TabsContent value="config" className="mt-4">
+                <div className="bg-secondary/50 rounded-lg p-3 text-xs space-y-1 font-mono text-muted-foreground">
+                  <p>PUSHOVER_URL = https://api.pushover.net/1/messages.json</p>
+                  <p>SOUND       = cashregister</p>
+                  <p>PRIORITY    = 0 (normal)</p>
+                  <p>MAX_MSG_LEN = 512 chars</p>
+                  <p>STAGGER_MS  = 1200 (between notifications)</p>
+                  <p>TOP_N       = 3 (deals per scan)</p>
+                </div>
+              </TabsContent>
+            </Tabs>
+          </CardContent>
+        </Card>
       </div>
 
-      {/* ── Pushover Notify Dialog ─────────────────────────────────────── */}
-      <Dialog open={notifyOpen} onOpenChange={(o) => { setNotifyOpen(o); if (!o) setNotifyResult(null); }}>
-        <DialogContent className="max-w-lg">
+      {/* ── Manual Notify Dialog ─────────────────────────────────────────────── */}
+      <Dialog open={notifyOpen} onOpenChange={setNotifyOpen}>
+        <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
-              <Bell className="w-5 h-5 text-yellow-500" />
-              Send Push Notification
+              <Bell className="w-5 h-5 text-blue-500" />
+              Send Pushover Notification
             </DialogTitle>
             <DialogDescription>
-              Send a real-time Pushover notification about this deal to your phone.
+              {notifyDeal?.product}
             </DialogDescription>
           </DialogHeader>
 
-          {notifyDeal && (
-            <div className="space-y-4">
-              {/* Deal summary */}
-              <div className="bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800 rounded-lg p-3">
-                <p className="font-semibold text-sm text-blue-900 dark:text-blue-100 line-clamp-2">{notifyDeal.product}</p>
-                <div className="flex items-center gap-3 mt-1.5">
-                  <span className="text-xs text-muted-foreground">Price: <strong className="text-foreground">${notifyDeal.price.toFixed(2)}</strong></span>
-                  <span className="text-xs text-muted-foreground">Est: <strong className="text-blue-600">${notifyDeal.estimate.toFixed(2)}</strong></span>
-                  <span className="text-xs font-bold text-green-600">Save ${notifyDeal.discount.toFixed(2)}</span>
-                </div>
-              </div>
-
-              {/* Credentials status */}
-              <div className={`flex items-center gap-2 text-xs rounded-lg px-3 py-2 ${
-                hasCredentials
-                  ? "bg-green-50 dark:bg-green-950/30 text-green-700 dark:text-green-300 border border-green-200 dark:border-green-800"
-                  : "bg-amber-50 dark:bg-amber-950/30 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-800"
-              }`}>
-                {hasCredentials
-                  ? <><CheckCircle2 className="w-3.5 h-3.5" /> Pushover credentials configured — ready to send</>
-                  : <><XCircle className="w-3.5 h-3.5" /> Pushover credentials missing — add them in Command Vault → Pushover tab</>
-                }
-              </div>
-
-              {/* Message editor */}
-              <div className="space-y-1.5">
-                <Label className="text-xs font-semibold flex items-center gap-1.5">
-                  <MessageSquare className="w-3.5 h-3.5" />
-                  Notification Message
-                </Label>
-                <Textarea
-                  value={customMessage}
-                  onChange={e => setCustomMessage(e.target.value)}
-                  rows={3}
-                  className="text-sm resize-none"
-                  placeholder="Enter notification message..."
-                  maxLength={512}
-                />
-                <p className="text-[10px] text-muted-foreground text-right">{customMessage.length}/512 chars</p>
-              </div>
-
-              {/* Sound selector */}
-              <div className="space-y-1.5">
-                <Label className="text-xs font-semibold flex items-center gap-1.5">
-                  <Zap className="w-3.5 h-3.5" />
-                  Notification Sound
-                </Label>
-                <Select value={sound} onValueChange={setSound}>
-                  <SelectTrigger className="h-8 text-sm">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {SOUNDS.map(s => (
-                      <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-
-              {/* Result panel */}
-              {notifyResult && (
-                <div className={`rounded-lg p-3 border text-sm ${
-                  notifyResult.success
-                    ? "bg-green-50 dark:bg-green-950/30 border-green-200 dark:border-green-800 text-green-800 dark:text-green-200"
-                    : "bg-red-50 dark:bg-red-950/30 border-red-200 dark:border-red-800 text-red-800 dark:text-red-200"
-                }`}>
-                  <div className="flex items-center gap-2 font-semibold mb-1">
-                    {notifyResult.success
-                      ? <><CheckCircle2 className="w-4 h-4" /> Notification Delivered! 🔔</>
-                      : <><XCircle className="w-4 h-4" /> Failed to Send</>
-                    }
-                    {notifyResult.latency > 0 && (
-                      <span className="ml-auto text-xs font-normal opacity-70">{notifyResult.latency}ms</span>
-                    )}
-                  </div>
-                  <p className="text-xs opacity-90">{notifyResult.message}</p>
-                  {notifyResult.receipt && (
-                    <p className="text-[10px] mt-1 opacity-60 font-mono">Receipt: {notifyResult.receipt}</p>
-                  )}
-                </div>
-              )}
+          <div className="space-y-4 py-2">
+            {/* Credentials status */}
+            <div className={`flex items-center gap-2 rounded-lg px-3 py-2 text-xs ${
+              hasCredentials
+                ? "bg-green-50 border border-green-200 text-green-700"
+                : "bg-amber-50 border border-amber-200 text-amber-700"
+            }`}>
+              <ShieldCheck className="w-4 h-4 shrink-0" />
+              {hasCredentials
+                ? `Credentials loaded from Command Vault (${settings.pushoverUser?.slice(0, 8)}...)`
+                : "No credentials in Command Vault. Go to Command Vault → Pushover tab to add them."}
             </div>
-          )}
+
+            {/* Message */}
+            <div className="space-y-1.5">
+              <Label className="text-xs">Message</Label>
+              <Textarea
+                value={customMessage}
+                onChange={e => setCustomMessage(e.target.value)}
+                rows={3}
+                className="text-xs resize-none"
+                maxLength={512}
+              />
+              <p className="text-[10px] text-muted-foreground text-right">{customMessage.length}/512</p>
+            </div>
+
+            {/* Sound */}
+            <div className="space-y-1.5">
+              <Label className="text-xs">Notification Sound</Label>
+              <Select value={sound} onValueChange={setSound}>
+                <SelectTrigger className="h-8 text-xs">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {SOUNDS.map(s => (
+                    <SelectItem key={s.value} value={s.value} className="text-xs">{s.label}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            {/* Result */}
+            {notifyResult && (
+              <div className={`rounded-lg px-3 py-2.5 text-xs ${
+                notifyResult.success
+                  ? "bg-green-50 border border-green-200 text-green-700"
+                  : "bg-red-50 border border-red-200 text-red-700"
+              }`}>
+                <div className="flex items-center gap-1.5 font-medium mb-1">
+                  {notifyResult.success
+                    ? <><CheckCircle2 className="w-3.5 h-3.5" /> Delivered successfully</>
+                    : <><XCircle className="w-3.5 h-3.5" /> Failed</>}
+                </div>
+                <p className="opacity-80">{notifyResult.message}</p>
+                {notifyResult.latency > 0 && (
+                  <p className="opacity-60 mt-0.5">Latency: {notifyResult.latency}ms</p>
+                )}
+              </div>
+            )}
+          </div>
 
           <DialogFooter className="gap-2">
-            <Button variant="outline" onClick={() => setNotifyOpen(false)}>
-              Cancel
-            </Button>
+            <Button variant="outline" size="sm" onClick={() => setNotifyOpen(false)}>Cancel</Button>
             <Button
+              size="sm"
+              className="gap-1.5"
               onClick={handleSendNotification}
-              disabled={sendNotification.isPending || !hasCredentials || !customMessage.trim()}
-              className="gap-2"
+              disabled={sendNotification.isPending || !hasCredentials}
             >
               {sendNotification.isPending
-                ? <><Loader2 className="w-4 h-4 animate-spin" /> Sending...</>
-                : <><Send className="w-4 h-4" /> Send Notification</>
-              }
+                ? <><Loader2 className="w-3.5 h-3.5 animate-spin" /> Sending...</>
+                : <><Send className="w-3.5 h-3.5" /> Send Notification</>}
             </Button>
           </DialogFooter>
         </DialogContent>
